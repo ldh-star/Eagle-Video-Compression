@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-page-node-id="DjLweNXwqbddD2irrHanAp">
+<head data-page-node-id="CRqvUrj0qBMEV8xiIWCIFE">
+    <meta charset="UTF-8" data-page-node-id="VJD3CFDwYIwCb0FOZAFY1T">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" data-page-node-id="ncmTKjU8dnqDvncKOB2ZAN" />
+    <title data-i18n="manifest.app.name">视频压缩</title>
+    <link rel="stylesheet" href="css/style.css" data-page-node-id="kjlHXdmDRgimZ3Gnssn6f5">
+</head>
+
+<body data-page-node-id="MDqdGSkFnMsVYZDDpGZnLA">
+    <div class="app" data-page-node-id="A5yD1cR0gH0qOBFqPjME7x">
+
+        <!-- ==================== 顶栏 ==================== -->
+        <header class="topbar" data-page-node-id="p4oxmMndJcLmyGdjChkzTe">
+            <div class="brand" data-page-node-id="XX8WliSWA9M354YpvYRpVl">
+                <span class="brand-name" data-i18n="ui.brandName" data-page-node-id="re25waDZxds0sWPI7sFlwT">视频压缩</span>
+                <span class="brand-sub" data-i18n="ui.brandSubtitle" data-page-node-id="ZFbzOi457N2IkjLwgYPSoS">批量转码 · 空间统计</span>
+            </div>
+            <div class="ffmpeg-status" id="ffmpegStatus" data-page-node-id="DSgSX5IiLvUztTYoz5N5Po">
+                <span class="dot" data-page-node-id="VAHYKZyCqQdfan4sNzX7Qt"></span><span class="txt" data-i18n="ui.detectingFfmpeg" data-page-node-id="JmRUvvxn1pEuaut8iHJL3r">正在检测 FFmpeg…</span>
+            </div>
+            <div class="topbar-actions">
+                <button type="button" class="log-btn" id="btnTheme" title="界面主题：跟随 Eagle / 强制浅色 / 强制深色" data-i18n-title="ui.themeTitle">主题：跟随</button>
+                <button type="button" class="log-btn" id="btnResetSettings" title="恢复编码、画质、备份、主题等全部默认设置" data-i18n="ui.resetSettings" data-i18n-title="ui.resetSettingsTitle">重置设置</button>
+            </div>
+        </header>
+
+        <!-- ==================== 操作栏（吸顶） ==================== -->
+        <!-- 原来这一栏在窗口底部，窗口高度不够时第一眼根本看不到，
+             要往下滚才能发现「开始压缩」在哪儿。挪到顶栏正下方并吸顶：
+             一打开就看得见，滚到哪儿都还在。 -->
+        <section class="actionbar" data-page-node-id="fCJpU1KwoA5z8lFFuQ8Dwu">
+            <div class="summary" id="summary" data-page-node-id="UZHlB0V9fBToeYEOxyZ4ts">
+                <div class="sum-item" data-page-node-id="dDnrYOGlfnBUQlvMJxho4K">
+                    <span class="sum-label" data-i18n="ui.originalTotal" data-page-node-id="bin5SkTQYgdlEBvNF9u3bK">原始总大小</span>
+                    <span class="sum-value" id="sumOriginal" data-page-node-id="KkiSvUfktJUbwFE0GEnop8">—</span>
+                </div>
+                <div class="sum-arrow" data-page-node-id="gLkSPFPNU5grpHNpIcYEYk">→</div>
+                <div class="sum-item" data-page-node-id="amxHXqKLNlBKV0m6w6ektv">
+                    <span class="sum-label" id="sumFinalLabel" data-i18n="ui.compressedTotal" data-page-node-id="asKc2TxP7U12c1kgfBsACD">压缩后总大小</span>
+                    <span class="sum-value" id="sumFinal" data-page-node-id="dOrKQHIUaaYX8jBxHhHlhl">—</span>
+                </div>
+                <div class="sum-item" id="sumSpaceItem" data-page-node-id="ZWEwDbPAtAt6TpWWHVCywJ">
+                    <span class="sum-label" data-i18n="ui.spaceChange" data-page-node-id="4McdrwNZHZhv2d4iqaDwv7">空间变化</span>
+                    <span class="sum-value" id="sumSaved" data-page-node-id="4AsgkpkoEvfzyMY8glTAVp">—</span>
+                </div>
+            </div>
+
+            <!-- 预估的精度说明。CRF 模式只能按经验模型估，必须说清楚，
+                 否则用户会把「预估」当成「保证」。 -->
+            <div class="estimate-note" id="estimateNote" hidden></div>
+
+            <div class="actionbar-spacer"></div>
+
+            <div class="actions" data-page-node-id="v9ibVznQUo6M7caY6U4WnJ">
+                <button type="button" class="btn" id="btnCancel" disabled data-i18n="ui.cancel" data-page-node-id="RRKworojVkjHPzSf1MFjKx">取消</button>
+                <button type="button" class="btn primary big" id="btnStart" disabled data-i18n="ui.startCompression" data-page-node-id="xtxpqSZoQG6I9F3bazpttb">开始压缩</button>
+            </div>
+        </section>
+
+        <!-- 日志抽屉：出问题时不用猜，直接看这里 -->
+        <div class="log-drawer" id="logDrawer" hidden>
+            <div class="log-head">
+                <span class="log-title">运行日志</span>
+                <span class="log-path" id="logPath"></span>
+                <span class="log-spacer"></span>
+                <button type="button" class="link-btn" id="btnCopyDiag">复制诊断信息</button>
+                <button type="button" class="link-btn" id="btnCopyLog">复制日志</button>
+                <button type="button" class="link-btn" id="btnRevealLog">打开日志目录</button>
+                <button type="button" class="link-btn" id="btnCloseLog">收起</button>
+            </div>
+            <pre class="log-body" id="logBody"></pre>
+        </div>
+
+        <!-- ==================== 压缩设置 ==================== -->
+        <section class="panel" data-page-node-id="lrZpaWtEyRZ02Dfc67aBdT">
+            <div class="panel-title" data-page-node-id="dEPZIgEXisghYVIhOPDHXj">压缩设置</div>
+
+            <div class="grid" data-page-node-id="5N65o0jnM3bOTIP4LrWskB">
+                <div class="field" data-page-node-id="gN0M2gJnEZ0Gc0XQSCTlYx">
+                    <label data-page-node-id="MJQVkZ6ECkGPEg5LgFD9NG">编码格式</label>
+                    <select id="selCodec" data-page-node-id="OjY7fkLIgnl1mzVBek1IbB"></select>
+                    <div class="hint" id="codecHint" data-page-node-id="c2AQvU7hrHO590JO2AWJ4b"></div>
+                </div>
+
+                <div class="field" data-page-node-id="ggmOTpAQrawgYjvzZI56cA">
+                    <label data-page-node-id="uCUYj6VBectTyMhN3rPSRd">编码速度</label>
+                    <select id="selSpeed" data-page-node-id="CZZwUUkZv2xFBCuahveOM4"></select>
+                    <div class="hint" data-page-node-id="Ug7RYUOW0mgFNpJTogRyf5">越慢压缩率越高，耗时越长</div>
+                </div>
+
+                <div class="field" data-page-node-id="1V8RgcyrGdQKehrOjhpsob">
+                    <label data-page-node-id="PMFGQeTuFeqDdGp2He2NxR">分辨率</label>
+                    <select id="selResolution" data-page-node-id="7HiPJbJRygI6AEBsLxjYTY"></select>
+                    <div class="hint" id="resolutionHint" data-page-node-id="72cgqtFjPmBVwWJqz1BIC9">只缩小，不会放大</div>
+                </div>
+
+                <div class="field" data-page-node-id="c9OrD2UtZiAfyOI55ErKoq">
+                    <label data-page-node-id="LZUu9lCImDOQ8AZ3qIEe9l">帧率</label>
+                    <select id="selFps" data-page-node-id="jwFJqnILzsaDy6c6kqhUqK"></select>
+                    <div class="hint" data-page-node-id="KGCt26xRz1JjneX2bkuFAH">降低帧率可进一步减小体积</div>
+                </div>
+
+                <div class="field" data-page-node-id="GLfCKek8PZ50TTa6yaEDi1">
+                    <label data-page-node-id="hVHSCKkl23wMDyOa6WmFQ6">音轨</label>
+                    <select id="selAudioMode" data-page-node-id="uwwJXsFghIyCcBQ85lTEsG"></select>
+                    <div class="hint" id="audioHint" data-page-node-id="KwdnVzghKaV593ahnvr58o"></div>
+                </div>
+
+                <div class="field" data-page-node-id="CEvYLFE8e6HlTG6ztM9c0m">
+                    <label data-page-node-id="VGBmIYBOuHI3bWsRv6KVLP">音频码率</label>
+                    <select id="selAudioBitrate" data-page-node-id="4JBNMn444JprJGxuw0DrLr"></select>
+                    <div class="hint" data-page-node-id="QekorfO9AafHH97Ks3JtYT">仅在「重编码为 AAC」时生效</div>
+                </div>
+            </div>
+
+            <!-- 压缩方式 -->
+            <div class="mode-block" data-page-node-id="DHI3fZQKtSgXhZ346Kp8DF">
+                <label class="mode-label" data-page-node-id="5JmJdPoFEgi8JoAxw0stLZ">压缩方式</label>
+                <div class="segmented" id="modeTabs" data-page-node-id="FJCtxb6uquOUcTWgOgEd6g">
+                    <button type="button" data-mode="crf" class="active" data-page-node-id="gLEL8Yia6wX44Ei8qWQlQS">画质优先（CRF）</button>
+                    <button type="button" data-mode="bitrate" data-page-node-id="0lSOOZDlBSRhNvcDPYQJ8l">指定码率</button>
+                    <button type="button" data-mode="target" data-page-node-id="7RrIQsZ1lS4vKpERQNJ0SG">目标文件大小</button>
+                </div>
+
+                <!-- CRF -->
+                <div class="mode-panel active" data-panel="crf" data-page-node-id="aL4eHeUS1JGfPlgvQRE15B">
+                    <div class="slider-row" data-page-node-id="Fp0IV5P0TcTKbO8BCZ8scZ">
+                        <span class="slider-caption" data-page-node-id="vQExcTD6XKOHSPT9PDX1ro">CRF 画质</span>
+                        <input type="range" id="rngCrf" min="0" max="51" step="1" value="23" data-page-node-id="8QkA5DUvtGI361FSVXbLfW">
+                        <span class="slider-value" id="crfValue" data-page-node-id="WxsWHiRUUfOD9sEfbi1tJW">23</span>
+                    </div>
+                    <div class="slider-scale" data-page-node-id="faOnmBj6L1WIIVAuN3pcCP">
+                        <span data-page-node-id="BiaULmhSrDtH9fA6DWTScL">画质最好 · 体积大</span>
+                        <span data-page-node-id="S64bhdeJOyZ9pdUtp8Mkx1">画质差 · 体积小</span>
+                    </div>
+                    <div class="hint" data-page-node-id="aEHkRuJAAIk74uPRkt4nxd">CRF 保持恒定画质，体积取决于画面内容，无法提前预估</div>
+                </div>
+
+                <!-- 码率 -->
+                <div class="mode-panel" data-panel="bitrate" data-page-node-id="KSdHCzcS9GwagGeVwd5Ury">
+                    <div class="inline-field" data-page-node-id="juntkbrjwSwUYYlSlTnzwJ">
+                        <input type="number" id="inpBitrate" min="100" max="100000" step="100" value="2000" data-page-node-id="uYtO0vo7kZCKSUMDhdNRsj">
+                        <span class="unit" data-page-node-id="AgJAjBcelRCxxIpZIwyaEO">kbps</span>
+                    </div>
+                    <div class="hint" data-page-node-id="759ssfMFY2SmYqd1lkCPBR">视频码率。1080p 一般 2000~5000 kbps 足够</div>
+                </div>
+
+                <!-- 目标大小 -->
+                <div class="mode-panel" data-panel="target" data-page-node-id="i2FvqSXgTk3t9fRp6JmODG">
+                    <div class="inline-field" data-page-node-id="7A12r0C2q9clyNJW2PFO76">
+                        <input type="number" id="inpTargetSize" min="1" max="100000" step="1" value="50" data-page-node-id="Lja2I9l6IOwbxqxtoiEI7r">
+                        <span class="unit" data-page-node-id="1hC4Lc9ERmjt03VCVwPgu9">MB</span>
+                    </div>
+                    <div class="hint" data-page-node-id="dmLZVgRfkWS63U5RZmHjo1">
+                        每个视频压缩到该大小附近。H.264 / H.265 采用两遍编码，精度更高但耗时约翻倍
+                    </div>
+                </div>
+            </div>
+
+            <!-- 高级 -->
+            <div class="advanced" data-page-node-id="gSnMiAevB9zDtXLBu7tMke">
+                <div class="check-row" data-page-node-id="2DknxJbKfgTra9Cq4tk7Rz">
+                    <label class="check" id="backupCheck" data-page-node-id="3hwgz8DtHzxSdi2iE02yQq">
+                        <input type="checkbox" id="chkBackup" disabled data-page-node-id="m6JENSf6HQgnCW1Xv1Ho2f">
+                        <span data-page-node-id="OoGCUA6wF6Hn8DiGmoqIOt">压缩前备份原文件</span>
+                    </label>
+                    <button type="button" class="link-btn" id="btnPickBackup" data-page-node-id="3CFKk4jMBsGx1vgRFjIrR3">选择备份位置…</button>
+                    <!-- 没指定备份目录之前，勾选框是禁用的。这里的文案会由 JS 按状态改写 -->
+                    <span class="backup-path" id="backupPath" data-page-node-id="U9jEnPcsSKyya5MU6FwvV2">未指定备份位置，勾选框暂不可用</span>
+                </div>
+
+                <div class="check-row" data-page-node-id="T08aAOIyn9esd3eJgl5dkF">
+                    <label class="check" data-page-node-id="Ewn2g2aULjwWoT0zppAX43">
+                        <input type="checkbox" id="chkReplaceInEagle" checked data-page-node-id="dGAPYM3vfhzPEJaFb8MwFQ">
+                        <span data-page-node-id="KUohD3b9gKDWbG4b8VXcZQ">完成后同步回 Eagle 素材（替换原素材并刷新缩略图）</span>
+                    </label>
+                </div>
+
+                <div class="field inline" data-page-node-id="UMgj3cdQaAUKAaeumResTF">
+                    <label data-page-node-id="EC5xzWZHWhxntJSn8dLq3o">同时处理</label>
+                    <select id="selConcurrency" data-page-node-id="AbWmBdgr6EThTcMkJCTby0"></select>
+                    <span class="hint" data-page-node-id="E1PZvy3tuKxpebcT1ksFn8">并发数越高越快，但 CPU 占用也越高</span>
+                </div>
+            </div>
+        </section>
+
+        <!-- ==================== 工具栏 ==================== -->
+        <section class="toolbar" data-page-node-id="yt5FWFbNpq5i0Xi2qNt8pa">
+            <button type="button" class="btn" id="btnAddFiles" data-page-node-id="GggX3RAF3RmfZ92uxrKXRf">添加本地文件…</button>
+            <button type="button" class="btn" id="btnClear" data-page-node-id="vacFlDbYQjemeNSOLSFEoy">清空列表</button>
+            <div class="toolbar-spacer" data-page-node-id="Pu4FkUBNYxUrrlOPhk1CNr"></div>
+            <div class="list-stat" id="listStat" data-page-node-id="thZitJLsByoG4HlbjsmCeA">尚未添加文件</div>
+        </section>
+
+        <!-- ==================== 文件列表 ==================== -->
+        <section class="filelist" id="fileList" data-page-node-id="tA2HOkIbhPg1gT7rOuEaiA">
+            <div class="empty-state" id="emptyState" data-page-node-id="MouVgipWEGMImNYQe4bmHl">
+                <div class="empty-icon" data-page-node-id="5EbLVokHHOZ7myKAeXpHTn">🎬</div>
+                <div class="empty-title" data-page-node-id="BnWljkB4D3GYpS3hYoxv3H">还没有添加视频</div>
+                <div class="empty-desc" data-page-node-id="umCHsqqHH0PZHehyjrIBJM">
+                    在 Eagle 里选中视频素材后打开本插件，会自动载入；
+                    <br data-page-node-id="SSirAz7A1DuQW44HVXryzJ">或者直接把视频文件拖到这个窗口里
+                </div>
+            </div>
+        </section>
+
+    </div>
+
+    <!-- 开始前的确认弹层 -->
+    <div class="modal-mask" id="confirmMask" hidden data-page-node-id="xHP9DXogiF4RLmLc32bdNN">
+        <div class="modal" data-page-node-id="IfJZD8HvO0ISWPowHBKVqU">
+            <div class="modal-title" data-page-node-id="bjgo52iy4lFnCUSJO56Eho">确认开始压缩</div>
+            <div class="modal-body" data-page-node-id="wA3m6Ey1RyKQ8unxLsDFiA">
+                <div class="warn-box" id="confirmWarn" data-page-node-id="h3e6OYfhL3O1rsJt0V0rOm"></div>
+                <div class="confirm-list" id="confirmList" data-page-node-id="ImqHPW20bDT6HOdwnHCgVt"></div>
+            </div>
+            <div class="modal-actions" data-page-node-id="iyC94C2edOVKofeKBs36yA">
+                <button type="button" class="btn" id="btnConfirmCancel" data-page-node-id="jPKcFFRN6YQvEt1aC1JqNT">再想想</button>
+                <button type="button" class="btn danger" id="btnConfirmOk" data-page-node-id="HBQiB9v24J1Em1prJ5g8Kw">确认开始</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- logger 必须最先加载：后面的脚本一旦报错，得有地方记下来 -->
+    <script type="text/javascript" src="js/logger.js"></script>
+    <script type="text/javascript">
+    // 全局兜底：任何未捕获的异常 / 未处理的 Promise 拒绝都写进日志。
+    // 插件窗口里看不到控制台，没有这个就等于黑盒。
+    (function () {
+        if (typeof Logger === 'undefined') return;
+
+        // 接管 console。之前 plugin.js 里的失败全都只走了 console.error，
+        // 日志文件里一行都没有，排查时等于瞎子。接管之后任何遗漏的 catch
+        // 都会自动留下痕迹。
+        Logger.captureConsole();
+
+        // 用捕获阶段注册：资源加载失败（脚本 404 之类）触发的 error 事件
+        // 不冒泡，只有捕获阶段能收到，否则这类故障会彻底静默。
+        window.addEventListener('error', function (e) {
+            if (e.target && e.target !== window && e.target.tagName) {
+                Logger.error('[资源加载失败] ' + e.target.tagName +
+                    ' ' + (e.target.src || e.target.href || '(未知地址)'));
+                return;
+            }
+            Logger.error('[未捕获异常] ' + (e.message || '') +
+                (e.filename ? ' @ ' + e.filename + ':' + e.lineno + ':' + e.colno : '') +
+                (e.error && e.error.stack ? '\n' + e.error.stack : ''));
+        }, true);
+
+        window.addEventListener('unhandledrejection', function (e) {
+            var r = e.reason;
+            Logger.error('[未处理的 Promise 拒绝] ' +
+                (r && r.stack ? r.stack : (r && r.message ? r.message : String(r))));
+        });
+
+        Logger.info('========== 插件启动 ==========');
+    })();
+    </script>
+    <!-- Eagle 内建 i18next 由 manifest 的 languages 配置加载；这里的适配层负责安全回退。 -->
+    <script type="text/javascript" src="js/i18n.js"></script>
+    <script type="text/javascript" src="js/ffmpeg.js"></script>
+    <script type="text/javascript" src="js/format.js"></script>
+    <script type="text/javascript" src="js/app.js"></script>
+    <script type="text/javascript" src="js/logger-ui.js"></script>
+    <script type="text/javascript" src="js/plugin.js"></script>
+    <script type="text/javascript">
+    // 脚本全部就位后打一行状态。这行日志本身就是探针：
+    // 只要它没出现，就说明前面某个 <script> 根本没加载起来。
+    (function () {
+        if (typeof Logger === 'undefined') return;
+        var hasEagle = '无法判断';
+        try { hasEagle = (typeof eagle !== 'undefined' && !!eagle) ? '是' : '否'; }
+        catch (e) { hasEagle = '探测异常: ' + e.message; }
+        Logger.info('脚本加载完毕 | eagle=' + hasEagle +
+            ' | App=' + (typeof App !== 'undefined' && App ? '已定义' : '未定义') +
+            ' | FFmpegCore=' + (typeof FFmpegCore !== 'undefined' && FFmpegCore ? '已定义' : '未定义') +
+            ' | Format=' + (typeof Format !== 'undefined' && Format ? '已定义' : '未定义') +
+            ' | LogUI=' + (typeof LogUI !== 'undefined' && LogUI ? '已定义' : '未定义'));
+    })();
+    </script>
+</body>
+</html>

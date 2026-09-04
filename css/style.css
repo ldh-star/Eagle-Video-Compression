@@ -1,0 +1,758 @@
+/* ==========================================================================
+   视频压缩 · 样式
+   深色为主（Eagle 默认主题），同时提供浅色覆盖
+   ========================================================================== */
+
+:root {
+    --bg: #1a1a1c;
+    --panel: #232326;
+    --panel-2: #2a2a2e;
+    --panel-3: #313136;
+    --border: #36363a;
+    --border-soft: #2e2e33;
+    --text: #e8e8ea;
+    --text-dim: #8e8e94;
+    --text-faint: #63636a;
+    --accent: #4a9eff;
+    --accent-dim: #2d6db5;
+    --success: #34c759;
+    --danger: #ff5f57;
+    --warn: #ffb340;
+    --radius: 8px;
+}
+
+body.light {
+    --bg: #f4f4f6;
+    --panel: #ffffff;
+    --panel-2: #f7f7f9;
+    --panel-3: #ececf0;
+    --border: #dcdce1;
+    --border-soft: #e8e8ec;
+    --text: #1c1c1e;
+    --text-dim: #6b6b72;
+    --text-faint: #9a9aa2;
+    --accent: #0a72e8;
+    --accent-dim: #b3d4ff;
+}
+
+* { box-sizing: border-box; }
+
+html, body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    /* 页面整体滚动交给 .app，body 本身不滚，避免出现双层滚动条 */
+    overflow: hidden;
+}
+
+body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
+    font-size: 13px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    user-select: none;
+}
+
+/* 整个窗口可上下滚动。
+   之前 .app 是 height:100vh + 内容分区各自固定，窗口一矮设置面板就把
+   文件列表挤到只剩几十像素，而列表本身又不滚 —— 结果就是「画面显示不完、
+   还没法往下翻」。现在改成两级：
+     1) 窗口够高时：文件列表 flex 撑开，内部自己滚（保持原来的手感）；
+     2) 窗口太矮时：列表被 min-height 顶住不再压缩，总高超过 100vh，
+        由 .app 出滚动条整体滚 —— 至少永远看得到全部内容。 */
+.app {
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow-y: auto;
+    overflow-x: hidden;
+}
+
+.app::-webkit-scrollbar { width: 10px; }
+.app::-webkit-scrollbar-track { background: transparent; }
+.app::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 5px;
+}
+.app::-webkit-scrollbar-thumb:hover { background: var(--text-faint); }
+
+/* ---------------------------- 顶栏 ---------------------------- */
+.topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-soft);
+    flex-shrink: 0;
+}
+
+.topbar-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+
+.brand { display: flex; align-items: baseline; gap: 8px; }
+.brand-name { font-size: 15px; font-weight: 600; }
+.brand-sub { font-size: 11px; color: var(--text-faint); }
+
+.ffmpeg-status {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--text-dim);
+    background: var(--panel-2);
+    padding: 4px 10px;
+    border-radius: 20px;
+    /* 失败时的提示可能很长（含"请安装 FFmpeg 依赖插件"这类引导），
+       不限制宽度会把顶栏撑破、把「日志」按钮挤出去。min-width:0 是
+       flex 子项能被压缩的前提，少了它 max-width 不生效。 */
+    min-width: 0;
+    max-width: 62%;
+}
+.ffmpeg-status .txt {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.ffmpeg-status .dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--warn);
+    flex-shrink: 0;
+}
+.ffmpeg-status.ok .dot { background: var(--success); }
+.ffmpeg-status.error .dot { background: var(--danger); }
+
+/* ---------------------------- 面板 ---------------------------- */
+.panel {
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-soft);
+    flex-shrink: 0;
+}
+
+.panel-title {
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-dim);
+    letter-spacing: .5px;
+    margin-bottom: 10px;
+}
+
+.grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px 14px;
+}
+
+.field { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.field.inline { flex-direction: row; align-items: center; gap: 8px; }
+.field.inline label { margin: 0; white-space: nowrap; }
+
+.field label {
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-bottom: 2px;
+}
+
+.hint {
+    font-size: 10px;
+    color: var(--text-faint);
+    line-height: 1.4;
+    min-height: 0;
+}
+.hint.warn { color: var(--warn); }
+
+select, input[type="number"] {
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-size: 12px;
+    font-family: inherit;
+    outline: none;
+    width: 100%;
+    appearance: none;
+    -webkit-appearance: none;
+    background-image: linear-gradient(45deg, transparent 50%, var(--text-faint) 50%),
+                      linear-gradient(135deg, var(--text-faint) 50%, transparent 50%);
+    background-position: calc(100% - 14px) 50%, calc(100% - 9px) 50%;
+    background-size: 5px 5px, 5px 5px;
+    background-repeat: no-repeat;
+    padding-right: 24px;
+    cursor: pointer;
+}
+input[type="number"] {
+    background-image: none;
+    padding-right: 8px;
+    cursor: text;
+}
+select:focus, input:focus { border-color: var(--accent); }
+select:disabled, input:disabled { opacity: .45; cursor: not-allowed; }
+
+/* ---------------------------- 压缩方式 ---------------------------- */
+.mode-block { margin-top: 14px; }
+.mode-label {
+    display: block;
+    font-size: 11px;
+    color: var(--text-dim);
+    margin-bottom: 6px;
+}
+
+.segmented {
+    display: inline-flex;
+    background: var(--panel-2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    overflow: hidden;
+}
+.segmented button {
+    background: transparent;
+    border: none;
+    color: var(--text-dim);
+    padding: 6px 14px;
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: all .12s;
+}
+.segmented button + button { border-left: 1px solid var(--border); }
+.segmented button:hover { color: var(--text); }
+.segmented button.active {
+    background: var(--accent);
+    color: #fff;
+}
+
+.mode-panel {
+    display: none;
+    margin-top: 10px;
+    padding: 10px 12px;
+    background: var(--panel-2);
+    border-radius: 6px;
+}
+.mode-panel.active { display: block; }
+
+.slider-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+.slider-caption { font-size: 12px; color: var(--text-dim); white-space: nowrap; }
+.slider-value {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--accent);
+    min-width: 28px;
+    text-align: center;
+    font-variant-numeric: tabular-nums;
+}
+.slider-scale {
+    display: flex;
+    justify-content: space-between;
+    font-size: 10px;
+    color: var(--text-faint);
+    margin-top: 2px;
+    padding: 0 0 0 62px;
+}
+
+input[type="range"] {
+    flex: 1;
+    -webkit-appearance: none;
+    appearance: none;
+    height: 4px;
+    border-radius: 2px;
+    background: var(--panel-3);
+    outline: none;
+    cursor: pointer;
+}
+input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: var(--accent);
+    cursor: pointer;
+    border: 2px solid var(--panel-2);
+}
+
+.inline-field {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.inline-field input { width: 110px; }
+.inline-field .unit { font-size: 12px; color: var(--text-dim); }
+
+/* ---------------------------- 高级 ---------------------------- */
+.advanced {
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border-soft);
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.check-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+.check {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    cursor: pointer;
+}
+.check input { cursor: pointer; margin: 0; }
+/* 未指定备份目录时，勾选框禁用 —— 灰掉并给出不可点的光标，
+   免得用户勾了半天发现没反应 */
+.check.disabled { opacity: .45; cursor: not-allowed; }
+.check.disabled input { cursor: not-allowed; }
+
+.link-btn {
+    background: none;
+    border: none;
+    color: var(--accent);
+    font-size: 11px;
+    cursor: pointer;
+    padding: 0;
+    font-family: inherit;
+    text-decoration: underline;
+}
+.link-btn:hover { color: var(--text); }
+.link-btn:disabled { color: var(--text-faint); cursor: not-allowed; text-decoration: none; }
+
+.backup-path {
+    font-size: 10px;
+    color: var(--text-faint);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    max-width: 340px;
+    direction: rtl;
+    text-align: left;
+}
+
+/* ---------------------------- 工具栏 ---------------------------- */
+.toolbar {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border-soft);
+    flex-shrink: 0;
+}
+.toolbar-spacer { flex: 1; }
+.list-stat { font-size: 11px; color: var(--text-dim); }
+
+.btn {
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 7px 14px;
+    font-size: 12px;
+    font-family: inherit;
+    cursor: pointer;
+    transition: all .12s;
+}
+.btn:hover:not(:disabled) { background: var(--panel-3); border-color: var(--text-faint); }
+.btn:disabled { opacity: .4; cursor: not-allowed; }
+.btn.primary {
+    background: var(--accent);
+    border-color: var(--accent);
+    color: #fff;
+}
+.btn.primary:hover:not(:disabled) { background: var(--accent-dim); border-color: var(--accent-dim); }
+.btn.big { padding: 8px 22px; font-size: 13px; font-weight: 500; }
+.btn.danger { background: var(--danger); border-color: var(--danger); color: #fff; }
+.btn.danger:hover:not(:disabled) { filter: brightness(1.1); }
+
+/* ---------------------------- 文件列表 ---------------------------- */
+.filelist {
+    flex: 1 1 auto;
+    /* 列表再挤也不能低于这个高度，否则窗口变矮时文件区会被压成一条缝。
+       顶不住了就让外层 .app 整体滚动。 */
+    min-height: 200px;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 8px 16px;
+}
+
+.filelist::-webkit-scrollbar { width: 8px; }
+.filelist::-webkit-scrollbar-track { background: transparent; }
+.filelist::-webkit-scrollbar-thumb {
+    background: var(--border);
+    border-radius: 4px;
+}
+.filelist::-webkit-scrollbar-thumb:hover { background: var(--text-faint); }
+
+.empty-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    height: 100%;
+    color: var(--text-faint);
+    text-align: center;
+    gap: 6px;
+}
+.empty-icon { font-size: 34px; opacity: .5; }
+.empty-title { font-size: 13px; color: var(--text-dim); }
+.empty-desc { font-size: 11px; line-height: 1.7; }
+
+/* 单条任务 */
+.task {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 9px 10px;
+    background: var(--panel);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius);
+    margin-bottom: 6px;
+    transition: border-color .15s;
+}
+.task.status-running { border-color: var(--accent-dim); }
+.task.status-done { border-color: rgba(52, 199, 89, .3); }
+.task.status-error { border-color: rgba(255, 95, 87, .35); }
+.task.status-incompatible { border-color: rgba(255, 179, 64, .35); }
+
+.task-body { flex: 1; min-width: 0; }
+
+.task-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.task-name {
+    font-size: 12px;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    flex: 1;
+    min-width: 0;
+}
+
+.task-badge {
+    font-size: 10px;
+    padding: 1px 7px;
+    border-radius: 10px;
+    background: var(--panel-3);
+    color: var(--text-dim);
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.task-badge.running { background: rgba(74, 158, 255, .18); color: var(--accent); }
+.task-badge.done { background: rgba(52, 199, 89, .18); color: var(--success); }
+.task-badge.error { background: rgba(255, 95, 87, .18); color: var(--danger); }
+.task-badge.incompatible { background: rgba(255, 179, 64, .18); color: var(--warn); }
+.task-badge.cancelled { background: var(--panel-3); color: var(--text-faint); }
+
+.task-meta {
+    font-size: 10px;
+    color: var(--text-faint);
+    margin-top: 3px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+}
+.task-meta .sep { opacity: .4; margin: 0 5px; }
+
+.task-result {
+    font-size: 10px;
+    margin-top: 3px;
+    font-variant-numeric: tabular-nums;
+    color: var(--text-dim);
+}
+/* 体积变小才用绿色；变大必须用红色；差异小到界面显示为 0.0% 时用普通文字。 */
+.task-result.saved { color: var(--success); }
+.task-result.bigger { color: var(--danger); }
+.task-result.same { color: var(--text-dim); }
+.task-result.error { color: var(--danger); }
+/* 「Eagle 说成功但文件大小对不上」：不当成成功，也不当成失败，用单独的琥珀色 */
+.task-result.warn { color: #f0a020; }
+
+.task-progress {
+    margin-top: 6px;
+    display: none;
+    align-items: center;
+    gap: 8px;
+}
+.task.status-running .task-progress,
+.task.status-done .task-progress { display: flex; }
+
+.bar {
+    flex: 1;
+    height: 4px;
+    background: var(--panel-3);
+    border-radius: 2px;
+    overflow: hidden;
+}
+.bar-fill {
+    height: 100%;
+    width: 0%;
+    background: var(--accent);
+    border-radius: 2px;
+    transition: width .2s ease-out;
+}
+.task.status-done .bar-fill { background: var(--success); }
+.task.status-error .bar-fill { background: var(--danger); }
+
+.task-pct {
+    font-size: 10px;
+    color: var(--text-dim);
+    min-width: 32px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.task-live {
+    font-size: 10px;
+    color: var(--text-faint);
+    min-width: 96px;
+    text-align: right;
+    font-variant-numeric: tabular-nums;
+}
+
+.task-remove {
+    background: none;
+    border: none;
+    color: var(--text-faint);
+    cursor: pointer;
+    font-size: 15px;
+    line-height: 1;
+    padding: 2px 4px;
+    flex-shrink: 0;
+    font-family: inherit;
+}
+.task-remove:hover { color: var(--danger); }
+.task-remove:disabled { opacity: .3; cursor: not-allowed; }
+
+/* ---------------------------- 操作栏（顶部吸顶） ---------------------------- */
+/* 这一栏原来在窗口底部。窗口高度不够时它被挤到视口外，
+   用户打开插件第一眼看不到「开始压缩」，还以为界面没加载完。
+   现在挪到顶栏正下方并吸顶：一打开就看得见，滚到哪儿都还在。
+   sticky 是相对滚动容器 .app 生效的，z-index 要压过后面的面板。 */
+.actionbar {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--panel-2);
+    flex-shrink: 0;
+    flex-wrap: wrap;
+}
+
+.actionbar-spacer { flex: 1 1 auto; min-width: 0; }
+
+/* 预估精度说明。CRF 只能靠采样/经验估，必须说清楚不是保证值 */
+.estimate-note {
+    font-size: 11px;
+    color: var(--text-faint);
+    line-height: 1.4;
+    flex: 0 1 auto;
+    min-width: 0;
+}
+.estimate-note.warn { color: var(--warn); }
+
+.summary {
+    display: flex;
+    align-items: center;
+    gap: 18px;
+    flex-shrink: 0;
+}
+.sum-item { display: flex; flex-direction: column; gap: 1px; }
+.sum-label { font-size: 10px; color: var(--text-faint); }
+.sum-value {
+    font-size: 15px;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+}
+/* 汇总空间的颜色严格映射到体积关系：小=绿，大=红，近似不变=默认黑/白。 */
+.sum-item.saved .sum-value { color: var(--success); }
+.sum-item.bigger .sum-value { color: var(--danger); }
+.sum-item.same .sum-value { color: var(--text); }
+.sum-arrow { color: var(--text-faint); font-size: 14px; }
+.actions { display: flex; gap: 8px; }
+
+/* ---------------------------- 弹层 ---------------------------- */
+.modal-mask {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, .55);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 100;
+}
+.modal-mask[hidden] { display: none; }
+
+.modal {
+    background: var(--panel);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    width: 520px;
+    max-width: 90%;
+    max-height: 80%;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 16px 48px rgba(0, 0, 0, .4);
+}
+.modal-title {
+    padding: 14px 16px;
+    font-size: 14px;
+    font-weight: 600;
+    border-bottom: 1px solid var(--border-soft);
+}
+.modal-body {
+    padding: 14px 16px;
+    overflow-y: auto;
+    flex: 1;
+}
+.modal-actions {
+    padding: 12px 16px;
+    border-top: 1px solid var(--border-soft);
+    display: flex;
+    justify-content: flex-end;
+    gap: 8px;
+}
+
+.warn-box {
+    background: rgba(255, 179, 64, .1);
+    border: 1px solid rgba(255, 179, 64, .3);
+    border-radius: 6px;
+    padding: 10px 12px;
+    font-size: 11px;
+    line-height: 1.7;
+    color: var(--warn);
+    margin-bottom: 12px;
+}
+
+.confirm-list {
+    max-height: 240px;
+    overflow-y: auto;
+    font-size: 11px;
+}
+.confirm-item {
+    display: flex;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 5px 0;
+    border-bottom: 1px solid var(--border-soft);
+}
+.confirm-item:last-child { border-bottom: none; }
+.confirm-item .ci-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.confirm-item .ci-size { color: var(--text-dim); flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.confirm-more { color: var(--text-faint); padding-top: 6px; font-size: 10px; }
+
+/* ==================== 日志抽屉 ==================== */
+.log-btn {
+    background: transparent;
+    border: 1px solid var(--border-soft);
+    color: var(--text-dim);
+    font-size: 11px;
+    padding: 4px 10px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-family: inherit;
+    flex-shrink: 0;
+    transition: color .15s, border-color .15s;
+}
+.log-btn:hover { color: var(--text); border-color: var(--border); }
+
+.log-drawer {
+    margin: 0 0 10px;
+    background: var(--bg-elevated);
+    border: 1px solid var(--border-soft);
+    border-radius: 8px;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+.log-head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border-soft);
+    font-size: 11px;
+}
+.log-title { font-weight: 600; color: var(--text); }
+.log-path { color: var(--text-faint); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.log-spacer { flex: 1; }
+
+.log-body {
+    margin: 0;
+    padding: 10px 12px;
+    max-height: 220px;
+    overflow: auto;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 10px;
+    line-height: 1.65;
+    color: var(--text-dim);
+    white-space: pre-wrap;
+    word-break: break-all;
+    background: transparent;
+}
+
+/* 位深降级等需要注意的提示 */
+.hint.warn-text {
+    color: var(--warn);
+}
+
+/* 启动失败 / 降级提示条。
+   之前 init 中断时界面只会停在 HTML 里写死的「正在检测 FFmpeg…」，
+   用户完全不知道发生了什么。现在无论多糟糕，至少把原因拍在屏幕上。 */
+.boot-banner {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 9999;
+    padding: 12px 16px;
+    background: var(--panel-3);
+    border-top: 2px solid var(--warn);
+    color: var(--text);
+    font-size: 12px;
+    line-height: 1.7;
+    box-shadow: 0 -6px 20px rgba(0, 0, 0, .35);
+}
+
+.boot-banner.fatal {
+    border-top-color: var(--danger);
+}
+
+.boot-banner .bb-title {
+    font-weight: 600;
+    font-size: 13px;
+    margin-bottom: 4px;
+    color: var(--warn);
+}
+
+.boot-banner.fatal .bb-title {
+    color: var(--danger);
+}
+
+.boot-banner .bb-detail {
+    color: var(--text-dim);
+}
+
+.boot-banner .bb-path {
+    margin-top: 4px;
+    color: var(--text-faint);
+    font-size: 11px;
+    word-break: break-all;
+}

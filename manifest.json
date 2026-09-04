@@ -1,0 +1,29 @@
+{
+    "id": "eb2ed01c-6783-4a75-9cac-051bc1f1d7e5",
+    "version": "1.0.0",
+    "platform": "all",
+    "arch": "all",
+    "name": "{{manifest.app.name}}",
+    "logo": "/logo.png",
+    "fallbackLanguage": "zh_CN",
+    "languages": ["de_DE", "en", "es_ES", "ja_JP", "ko_KR", "ru_RU", "zh_CN", "zh_TW"],
+    "keywords": [
+        "视频",
+        "压缩",
+        "转码",
+        "批量",
+        "H.265",
+        "FFmpeg"
+    ],
+    "dependencies": [
+        "ffmpeg"
+    ],
+    "devTools": false,
+    "main": {
+        "url": "index.html",
+        "width": 1180,
+        "height": 940,
+        "minWidth": 960,
+        "minHeight": 640
+    }
+}
