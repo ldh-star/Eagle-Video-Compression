@@ -1,5 +1,9 @@
 {
-  "manifest": { "app": { "name": "视频压缩" } },
+  "manifest": {
+    "app": {
+      "name": "视频压缩"
+    }
+  },
   "ui": {
     "brandName": "视频压缩",
     "brandSubtitle": "批量转码 · 空间统计",
@@ -72,7 +76,20 @@
     "removeAudio": "去除音轨（最省体积）",
     "reencodeAac": "重编码为 AAC",
     "followSource": "跟随原片",
-    "customHeight": "自定义高度…", "speedVeryFast": "极快（体积大）", "speedFast": "快", "speedBalanced": "均衡", "speedSlow": "慢", "speedVerySlow": "极慢（体积最小）"
+    "customHeight": "自定义高度…",
+    "speedVeryFast": "极快（体积大）",
+    "speedFast": "快",
+    "speedBalanced": "均衡",
+    "speedSlow": "慢",
+    "speedVerySlow": "极慢（体积最小）",
+    "analyzeAll": "分析全部",
+    "stopAnalysis": "停止分析",
+    "cancelTasks": "停止并取消",
+    "cancelTasksTitle": "立即停止正在处理的视频，并取消尚未开始的任务",
+    "selectionTitle": "检测到新的 Eagle 选中素材",
+    "selectionCancel": "取消此次操作",
+    "selectionReplace": "取消当前所有任务并重新添加",
+    "selectionAppend": "加入任务队列"
   },
   "runtime": {
     "saved": "{{prefix}}省 {{percent}}%（{{size}}）",
@@ -104,6 +121,29 @@
     "skippedFiles": "已跳过 {{count}} 个非视频或重复文件",
     "selectVideoFilter": "视频文件",
     "tenBitDowngrade": "列表中有 {{count}} 个 10-bit 片源，选此格式会降到 8-bit（H.265 / AV1 可保留）",
-    "copyResolutionLocked": "复制视频流时无法改变分辨率", "audioAacHint": "统一转为 AAC，兼容性最好", "audioCopyHint": "音轨原样复制，不损失音质也不省体积", "audioNoneHint": "去掉声音，视频体积会明显下降", "notificationTitle": "视频压缩完成", "notificationBody": "共处理 {{count}} 个视频，{{change}}"
+    "copyResolutionLocked": "复制视频流时无法改变分辨率",
+    "audioAacHint": "统一转为 AAC，兼容性最好",
+    "audioCopyHint": "音轨原样复制，不损失音质也不省体积",
+    "audioNoneHint": "去掉声音，视频体积会明显下降",
+    "notificationTitle": "视频压缩完成",
+    "notificationBody": "共处理 {{count}} 个视频，{{change}}",
+    "analysisDeferred": "等待手动分析",
+    "sampleProgress": "正在分析 {{ready}}/{{total}}",
+    "sampleLimited": "已分析 {{ready}}/{{total}}，其余按需分析",
+    "sampleComplete": "已分析 {{ready}}/{{total}}",
+    "analysisStopped": "已停止后台分析",
+    "sampleTaskProgress": "预估分析 {{index}}/{{total}}",
+    "cancelling": "正在停止并取消任务…",
+    "eagleSelectionUnavailable": "当前 Eagle 环境不提供素材读取能力",
+    "eagleSelectionTimeout": "读取 Eagle 素材超时，请重试",
+    "eagleSelectionFailed": "读取 Eagle 素材失败：{{message}}",
+    "noEagleSelection": "Eagle 里没有选中任何素材",
+    "noProcessableVideos": "选中的素材里没有可处理的视频",
+    "alreadyInQueue": "这些素材已经在列表里了",
+    "appendedToQueue": "已将 {{count}} 个新素材加入任务队列",
+    "selectionDecisionDescription": "当前列表已有 {{current}} 个任务，检测到 {{incoming}} 个新的 Eagle 视频素材。请选择如何处理：",
+    "selectionMore": "…以及另外 {{count}} 个素材",
+    "replacedWithSelection": "已取消当前任务，并载入 {{count}} 个新素材",
+    "cancellingForReplacement": "正在停止当前任务，随后载入新素材…"
   }
 }

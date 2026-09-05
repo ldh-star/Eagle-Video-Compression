@@ -109,17 +109,15 @@ The local verification suite covers, among other things:
 - UI interaction, settings persistence, CRF sampling estimates, and localization
 - FFmpeg compatibility across the Eagle-provided and local FFmpeg versions
 
-Run the main checks with Node.js 22 or newer:
+The regression tests kept in this repository run on Node.js 22 or newer with jsdom:
 
 ```bash
 NODE=/Users/hongliang/.workbuddy/binaries/node/versions/22.12.0/bin/node
-cd /Users/hongliang/.workbuddy/skills/eagle-plugin-local-e2e/scripts
-$NODE test_settings_and_ux.js
-$NODE test_nodeintegration.js
-$NODE test_ui.js
-```
+cd /Users/hongliang/StudioProjects/Mine/视频压缩
 
-See the project test skill and test scripts for the complete suite used during development.
+$NODE tests/test_hevc_apple_compat.js   # HEVC / Apple container compatibility
+$NODE tests/test_queue_intake.js        # cancellation, queue intake, atomic commit
+```
 
 ## Project structure
 
@@ -127,6 +125,7 @@ See the project test skill and test scripts for the complete suite used during d
 ├── manifest.json        # Eagle plugin manifest and locale declaration
 ├── index.html           # Plugin window markup
 ├── css/style.css        # Theme-aware UI styles
+├── tests/               # Node.js + jsdom regression tests
 ├── js/
 │   ├── app.js           # UI, task queue, settings, and Eagle orchestration
 │   ├── ffmpeg.js        # FFmpeg probing, plans, execution, and sampling estimates
@@ -136,6 +135,33 @@ See the project test skill and test scripts for the complete suite used during d
 │   └── plugin.js        # Eagle lifecycle integration
 └── _locales/            # Localized strings
 ```
+
+## Changelog
+
+### 1.0.1
+
+**Fixed**
+
+- **H.265 output could not be played or previewed by macOS.** FFmpeg writes HEVC into MP4/MOV with the `hev1` sample entry by default, leaving VPS/SPS/PPS inside the bitstream. FFmpeg-based players (including Eagle) parse those fine, but Apple's decoding stack requires `hvc1`, where parameter sets live in the container description. The symptom was exactly what users reported: the file plays in Eagle but Finder, Quick Look, and QuickTime cannot open it. Outputs for `.mp4`, `.mov`, and `.m4v` now carry `-tag:v hvc1`.
+  - The tag is applied only to genuine HEVC streams. In remux/copy mode, the target encoder is `copy`, so the real format is read back from the probed source codec — tagging an H.264 stream as `hvc1` makes the MP4 muxer fail while writing the header and destroys the whole task.
+  - Already-compressed `hev1` files do not need re-encoding. Remux them losslessly: `ffmpeg -i broken.mp4 -map 0 -c copy -tag:v hvc1 fixed.mp4`.
+- **Replacing the original file was not crash-safe.** The encoded output was copied directly over the source path, so a failure partway through could leave a truncated or partially overwritten original. The commit now writes a staging file next to the destination and swaps it in with an atomic rename; cancellation and I/O errors leave the original untouched.
+- **A synchronous throw from `eagle.item.getSelected()` escaped its handler.** The call is now wrapped so that synchronous failures and asynchronous rejections share one catch path.
+- **Stale selection callbacks could reopen a dismissed dialog.** Eagle may fire `onPluginRun` / `onPluginShow` in quick succession. Late-returning reads are now discarded by a monotonically increasing version, so the dialog does not reappear after the user dismissed it.
+
+**Added**
+
+- **A visible "Stop and cancel" control during compression.** It tells FFmpeg to terminate the encode in progress, immediately marks not-yet-started tasks cancelled, and then waits for child processes to exit and temporary files to be cleaned up before the UI settles.
+- **A three-way choice when the plugin is reopened with new Eagle items selected.** Previously the window reopened but new items could not be added to a non-empty list. Now the plugin asks: cancel this action (keep the current queue), cancel all current tasks and load the new selection, or append the new items to the queue. It never silently discards work in progress.
+- **Appending to a running queue.** New items added mid-compression are probed and then picked up by idle workers in the current run instead of waiting for the next one.
+- **Sample-estimate controls.** Batch imports only sample a few items by default; the UI now shows sampling progress with "Analyze all" and "Stop analysis" controls.
+
+**Improved**
+
+- Concurrency is now a resource budget rather than a raw process count. Worker count is derived from CPU cores, encoder, and two-pass mode, and each encoder receives an explicit thread cap, so several multi-threaded FFmpeg processes no longer contend for every core.
+- Temporary output is written next to the source when that directory is writable, avoiding an extra full-size copy when the source lives on an external or network volume. Falls back to the system temp directory when it is not.
+- FFmpeg `stderr` is capped at a 64 KB tail instead of accumulating indefinitely across long multi-worker runs.
+- Progress rendering is throttled to 120 ms and reuses cached task-row nodes instead of re-querying the DOM on every progress event.
 
 ## Contributing
 

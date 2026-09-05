@@ -71,9 +71,14 @@
             setText('#emptyState .empty-title', 'ui.emptyTitle', '还没有添加视频');
             var emptyDesc = document.querySelector('#emptyState .empty-desc');
             if (emptyDesc) emptyDesc.innerHTML = tr('ui.emptyDescription', '在 Eagle 里选中视频素材后打开本插件，会自动载入；\n或者直接把视频文件拖到这个窗口里').replace(/\n/g, '<br>');
-            setText('.modal-title', 'ui.confirmTitle', '确认开始压缩');
+            setText('#confirmMask .modal-title', 'ui.confirmTitle', '确认开始压缩');
             setText('#btnConfirmCancel', 'ui.thinkAgain', '再想想');
             setText('#btnConfirmOk', 'ui.confirmStart', '确认开始');
+            setText('#btnCancel', 'ui.cancelTasks', '停止并取消');
+            setText('#selectionTitle', 'ui.selectionTitle', '检测到新的 Eagle 选中素材');
+            setText('#btnSelectionCancel', 'ui.selectionCancel', '取消此次操作');
+            setText('#btnSelectionReplace', 'ui.selectionReplace', '取消当前所有任务并重新添加');
+            setText('#btnSelectionAppend', 'ui.selectionAppend', '加入任务队列');
             setText('.log-title', 'ui.logTitle', '运行日志');
             setText('#btnCopyDiag', 'ui.copyDiagnostic', '复制诊断信息');
             setText('#btnCopyLog', 'ui.copyLog', '复制日志');
@@ -177,6 +182,10 @@
         tasks: [],
         running: false,
         cancelToken: { cancelled: false },
+        // 当前一轮压缩完成（包括 FFmpeg 子进程退出、临时文件清理）的 Promise。
+        // "取消并重新添加" 必须等待它结束，不能在旧进程还握着临时文件时就清空队列。
+        runPromise: Promise.resolve(),
+        runSession: null,
         settings: defaultSettings()
     };
 
@@ -202,6 +211,43 @@
                 err ? reject(err) : resolve();
             });
         });
+    }
+
+    function renameAsync(src, dest) {
+        return new Promise(function (resolve, reject) {
+            fs.rename(src, dest, function (err) {
+                err ? reject(err) : resolve();
+            });
+        });
+    }
+
+    function newCancelledError() {
+        if (Core && typeof Core.CancelledError === 'function') return Core.CancelledError();
+        var err = new Error('Cancelled');
+        err.cancelled = true;
+        return err;
+    }
+
+    /**
+     * 安全提交最终产物。
+     *
+     * 绝不能把临时输出直接 copy 到原路径：copyFile 中途失败时，原文件有被截断或
+     * 部分覆盖的风险。这里先在原文件同目录写入 staging，写完整后再 rename 覆盖；
+     * 在 macOS/Linux 的同一卷上 rename 是原子提交，失败时原文件保持不变。
+     * 在 staging 拷贝前、以及 commit 临界区前分别检查取消状态；一旦发起 rename，
+     * 就将它视为不可中断的极短提交操作，保证结果只能是旧文件或完整新文件。
+     */
+    function atomicReplaceFileAsync(src, dest, cancelToken) {
+        var stage = path.join(path.dirname(dest), '.eagle-vc-commit-' + uid() + path.extname(dest));
+        if (cancelToken && cancelToken.cancelled) return Promise.reject(newCancelledError());
+        return copyFileAsync(src, stage)
+            .then(function () {
+                if (cancelToken && cancelToken.cancelled) throw newCancelledError();
+                return renameAsync(stage, dest);
+            })
+            .catch(function (err) {
+                return unlinkQuiet(stage).then(function () { throw err; });
+            });
     }
 
     function unlinkQuiet(p) {
@@ -650,21 +696,42 @@
         var pending = state.tasks.filter(function (t) { return t.status === 'pending'; });
         if (!pending.length) { renderSummary(); return; }
 
+        // 先同步标记，避免短时间内连续追加素材时，两个 probePendingTasks()
+        // 都把同一条 pending 任务送去 ffprobe。
+        pending.forEach(function (t) {
+            t.status = 'probing';
+            renderTask(t);
+        });
+
+        // 正在编码时追加的素材，只有探测完成后才能进入本轮 worker 队列。
+        // 计数会让已经暂时空闲的 worker 等待探测结果，而不是提前结束整轮任务。
+        var session = state.running ? state.runSession : null;
+        if (session) session.pendingProbes += pending.length;
+
         var chain = Promise.resolve();
         pending.forEach(function (t) {
             chain = chain.then(function () {
-                t.status = 'probing';
-                renderTask(t);
                 return Core.probe(state.bins, t.path)
                     .then(function (meta) {
+                        // 用户已取消或选择替换时，不再把晚到的探测结果复活成待处理任务。
+                        if (t.status === 'cancelled') return;
                         t.meta = meta;
                         t.status = 'queued';
+                        if (session && state.running && state.runSession === session && !state.cancelToken.cancelled) {
+                            session.queue.push(t);
+                            signalRunSession(session);
+                        }
                     })
                     .catch(function (err) {
+                        if (t.status === 'cancelled') return;
                         t.status = 'error';
                         t.error = err.message;
                     })
                     .then(function () {
+                        if (session) {
+                            session.pendingProbes = Math.max(0, session.pendingProbes - 1);
+                            signalRunSession(session);
+                        }
                         renderTask(t);
                         renderSummary();
                         updateButtons();
@@ -724,8 +791,19 @@
             '</div>' +
             '<button type="button" class="task-remove" title="移除">×</button>';
 
+        // 缓存会在高频进度更新中用到的节点，避免每个 FFmpeg 进度事件都 querySelector。
+        t.view = {
+            root: el,
+            badge: el.querySelector('.task-badge'),
+            remove: el.querySelector('.task-remove'),
+            meta: el.querySelector('.task-meta'),
+            result: el.querySelector('.task-result'),
+            fill: el.querySelector('.bar-fill'),
+            pct: el.querySelector('.task-pct'),
+            live: el.querySelector('.task-live')
+        };
         el.querySelector('.task-name').textContent = t.name;
-        el.querySelector('.task-remove').addEventListener('click', function () {
+        t.view.remove.addEventListener('click', function () {
             removeTask(t.id);
         });
         return el;
@@ -760,9 +838,23 @@
     function renderTask(t) {
         if (!t.el) return;
         var el = t.el;
+        var view = t.view;
+        if (!view) {
+            // 兼容旧任务对象 / 测试手工构造的任务；正常路径在 buildTaskEl 已缓存。
+            view = t.view = {
+                root: el,
+                badge: el.querySelector('.task-badge'),
+                remove: el.querySelector('.task-remove'),
+                meta: el.querySelector('.task-meta'),
+                result: el.querySelector('.task-result'),
+                fill: el.querySelector('.bar-fill'),
+                pct: el.querySelector('.task-pct'),
+                live: el.querySelector('.task-live')
+            };
+        }
         el.className = 'task status-' + t.status;
 
-        var badge = el.querySelector('.task-badge');
+        var badge = view.badge;
         var badgeText = {
             pending: tr('ui.statusPending', '待探测'), probing: tr('ui.statusProbing', '读取信息…'),
             queued: tr('ui.statusQueued', '待处理'), running: tr('ui.statusRunning', '压缩中'),
@@ -772,10 +864,10 @@
         badge.textContent = badgeText[t.status] || t.status;
         badge.className = 'task-badge ' + t.status;
 
-        el.querySelector('.task-remove').disabled = state.running;
+        view.remove.disabled = state.running;
 
         // 元信息行
-        var meta = el.querySelector('.task-meta');
+        var meta = view.meta;
         if (t.meta) {
             var v = t.meta.video || {};
             var items = [];
@@ -813,6 +905,8 @@
             if (state.settings.mode === 'crf' && t.status !== 'done') {
                 if (t.sampleStatus === 'running' || t.sampleStatus === 'waiting') {
                     pushItem(tr('runtime.analysing', '正在采样分析…'));
+                } else if (t.sampleStatus === 'deferred') {
+                    pushItem(tr('runtime.analysisDeferred', '等待手动分析'));
                 } else if (t.sampleEstimate) {
                     pushItem(tr('runtime.estimated', '预估 {{size}}', {
                         size: F.bytes(t.sampleEstimate.low) + '～' + F.bytes(t.sampleEstimate.high)
@@ -832,7 +926,7 @@
         }
 
         // 结果行
-        var result = el.querySelector('.task-result');
+        var result = view.result;
         result.className = 'task-result';
         if (t.status === 'done' && t.outputSize !== null) {
             var orig = t.meta ? t.meta.size : 0;
@@ -858,9 +952,9 @@
         }
 
         // 进度
-        el.querySelector('.bar-fill').style.width = t.progress + '%';
-        el.querySelector('.task-pct').textContent = t.progress > 0 ? t.progress + '%' : '';
-        el.querySelector('.task-live').textContent = t.liveInfo || '';
+        view.fill.style.width = t.progress + '%';
+        view.pct.textContent = t.progress > 0 ? t.progress + '%' : '';
+        view.live.textContent = t.liveInfo || '';
     }
 
     function escapeHtml(s) {
@@ -1075,6 +1169,40 @@
         showConfirm(tasks, settings);
     }
 
+    // 进度事件可能每秒到几十次。只刷新进度相关 DOM，并做 120ms 节流，
+    // 避免长列表 + 多 worker 时反复重建元信息行和查询节点。
+    var progressRenderTimer = null;
+    var progressRenderQueue = {};
+
+    function scheduleProgressRender(t) {
+        if (!t || !t.id) return;
+        progressRenderQueue[t.id] = t;
+        if (progressRenderTimer) return;
+        progressRenderTimer = setTimeout(function () {
+            var queue = progressRenderQueue;
+            progressRenderQueue = {};
+            progressRenderTimer = null;
+            Object.keys(queue).forEach(function (id) {
+                var task = queue[id];
+                if (!task || !task.view) return;
+                task.view.fill.style.width = task.progress + '%';
+                task.view.pct.textContent = task.progress > 0 ? task.progress + '%' : '';
+                task.view.live.textContent = task.liveInfo || '';
+            });
+        }, 120);
+    }
+
+    /** 通知空闲 worker：追加素材探测完毕、或用户请求取消时都需要唤醒它们。 */
+    function signalRunSession(session) {
+        if (!session || !session.waiters || !session.waiters.length) return;
+        var waiters = session.waiters.splice(0);
+        waiters.forEach(function (resolve) { resolve(); });
+    }
+
+    function waitForRunSessionWork(session) {
+        return new Promise(function (resolve) { session.waiters.push(resolve); });
+    }
+
     function doStart() {
         // 已经在跑就直接忽略。这是最后一道防线：即便上层因为事件重复绑定
         // 等原因调用了两次，也绝不能起第二个并发队列 —— 两个队列会各自
@@ -1103,28 +1231,50 @@
             renderTask(t);
         });
 
-        var index = 0;
-        var concurrency = Math.max(1, Math.min(4, settings.concurrency || 1));
+        var cpuCount = 1;
+        try { cpuCount = (os.cpus && os.cpus().length) || 1; } catch (e) {}
+        var concurrency = Core._internal.recommendedWorkerCount(settings, cpuCount, tasks.length);
+        // 不写回持久化设置：这是本次运行的资源预算，不是替用户修改“同时处理”偏好。
+        var runtimeSettings = {};
+        Object.keys(settings).forEach(function (key) { runtimeSettings[key] = settings[key]; });
+        runtimeSettings.runtimeThreads = Core._internal.recommendedThreadCount(cpuCount, concurrency);
+        log('info', '编码资源预算：用户上限 ' + settings.concurrency + '，实际 worker ' + concurrency +
+            '，每 worker ' + runtimeSettings.runtimeThreads + ' 线程（CPU ' + cpuCount + ' 核）');
+
+        // queue 是活的：用户在 Eagle 里重新选择素材并点「加入任务队列」后，
+        // 新素材会在 ffprobe 完成时推入这里，空闲 worker 会继续取下一条。
+        var session = state.runSession = {
+            queue: tasks.slice(),
+            pendingProbes: 0,
+            waiters: []
+        };
 
         function worker() {
             return (function next() {
                 if (state.cancelToken.cancelled) return Promise.resolve();
-                if (index >= tasks.length) return Promise.resolve();
-                var t = tasks[index++];
-                return runTask(t, settings)
-                    .then(function () {
-                        renderSummary();
-                        return next();
-                    });
+                var t = session.queue.shift();
+                if (t) {
+                    return runTask(t, runtimeSettings)
+                        .then(function () {
+                            renderSummary();
+                            return next();
+                        });
+                }
+                // 追加的素材正在读取信息时，不能让 worker 提前结束；等它入队或探测失败。
+                if (session.pendingProbes > 0) {
+                    return waitForRunSessionWork(session).then(next);
+                }
+                return Promise.resolve();
             })();
         }
 
         var workers = [];
         for (var i = 0; i < concurrency; i++) workers.push(worker());
 
-        Promise.all(workers)
+        state.runPromise = Promise.all(workers)
             .then(function () {
                 state.running = false;
+                state.runSession = null;
                 renderSummary();
                 updateButtons();
 
@@ -1165,8 +1315,12 @@
      * 任何一步失败，原文件都不会被改动。
      */
     function runTask(t, settings) {
-        var tmpOut = path.join(os.tmpdir(), 'eagle-vc-out-' + t.id + t.ext);
-        var passPrefix = path.join(os.tmpdir(), 'eagle-vc-pass-' + t.id);
+        // 可写时优先在源文件同目录生成中间产物。最终仍然要经过完整校验，
+        // 但同卷替换避免了“系统临时目录 → 外置盘/网络盘”额外复制一次大文件。
+        // 目录不可写时 Core 会安全回退到系统临时目录。
+        var tempDir = Core._internal.preferredTempDir(t.path);
+        var tmpOut = path.join(tempDir, 'eagle-vc-out-' + t.id + t.ext);
+        var passPrefix = path.join(tempDir, 'eagle-vc-pass-' + t.id);
         var passLogs = [passPrefix + '-0.log', passPrefix + '-0.log.mbtree'];
 
         function cleanup() {
@@ -1222,7 +1376,7 @@
                     bits.push(/x$/i.test(info.speed) ? info.speed : info.speed + 'x');
                 }
                 t.liveInfo = bits.join(' · ');
-                renderTask(t);
+                scheduleProgressRender(t);
             }
         })
             // 3) 校验产物
@@ -1284,7 +1438,7 @@
                         })
                         .catch(function () {
                             // 退回方案：直接覆盖文件并手动刷新缩略图
-                            return copyFileAsync(tmpOut, t.path).then(function () {
+                            return atomicReplaceFileAsync(tmpOut, t.path, state.cancelToken).then(function () {
                                 if (t.eagleItem && typeof t.eagleItem.refreshThumbnail === 'function') {
                                     return Promise.resolve(t.eagleItem.refreshThumbnail()).catch(function () {});
                                 }
@@ -1292,7 +1446,7 @@
                         });
                 }
 
-                return copyFileAsync(tmpOut, t.path).then(function () {
+                return atomicReplaceFileAsync(tmpOut, t.path, state.cancelToken).then(function () {
                     if (t.eagleItem && typeof t.eagleItem.refreshThumbnail === 'function') {
                         return Promise.resolve(t.eagleItem.refreshThumbnail()).catch(function () {});
                     }
@@ -1327,23 +1481,43 @@
                 if (err && err.cancelled) {
                     t.status = 'cancelled';
                     t.liveInfo = '';
-                    log('info', '[' + t.name + '] 已取消，原文件未改动');
+                    log('info', '[' + t.name + '] 已取消；未进入提交阶段，原文件保持不变');
                 } else {
                     t.status = 'error';
                     t.error = err && err.message ? err.message : String(err);
                     t.liveInfo = '';
-                    log('error', '[' + t.name + '] 失败（原文件未改动）', err);
+                    log('error', '[' + t.name + '] 失败（未成功提交时原文件保持不变）', err);
                 }
                 renderTask(t);
                 return cleanup();
             });
     }
 
+    /**
+     * 立即停止当前编码，并把尚未启动的任务标成已取消。
+     *
+     * FFmpeg 子进程会由 cancelToken 终止；runPromise 则等到子进程退出、产物清理完成。
+     * 返回该 Promise，给“取消当前所有任务并重新添加”安全地串联下一批素材。
+     */
     function cancel() {
-        if (!state.running) return;
+        if (!state.running) return Promise.resolve();
         state.cancelToken.cancelled = true;
+        cancelSamplingEstimates();
+        state.tasks.forEach(function (t) {
+            if (t.status === 'pending' || t.status === 'probing' || t.status === 'queued') {
+                t.status = 'cancelled';
+                t.liveInfo = '';
+                renderTask(t);
+            }
+        });
+        if (state.runSession) {
+            state.runSession.queue = [];
+            signalRunSession(state.runSession);
+        }
         dom.btnCancel.disabled = true;
-        setStatus('正在取消…', 'warn');
+        setStatus(tr('runtime.cancelling', '正在停止并取消任务…'), 'warn');
+        log('info', '用户请求停止并取消当前任务队列');
+        return state.runPromise || Promise.resolve();
     }
 
     // -----------------------------------------------------------------
@@ -1356,81 +1530,182 @@
      * 可能永远不 settle（之前 FFmpeg 定位就栽在这上面）。不设上限的话，
      * 界面会一直停在「还没载入」，用户只能干等。
      */
-    function loadFromEagle(opts) {
+    /** 读取当前 Eagle 选中素材；只负责读取，不直接修改任务列表。 */
+    function getSelectedEagleItems(opts) {
         opts = opts || {};
         var quiet = !!opts.quiet;
-
-        // 别假设 eagle.item 一定在。Eagle 版本差异、或 API 只挂了一部分的时候
-        // （本地就测出来过：eagle 整体存在，但 item 模块没挂），
-        // 直接取 eagle.item.getSelected 会抛 TypeError，把「加个提示」这件
-        // 小事变成一条 ERROR 日志外加一个没反应的界面。
         if (!eagle || !eagle.item || typeof eagle.item.getSelected !== 'function') {
-            if (!quiet) setStatus('当前 Eagle 环境不提供素材读取能力', 'warn');
-            emptyHint = '读不到 Eagle 素材列表，请用「添加本地文件…」或拖拽视频进来';
-            renderList();
-            return;
+            if (!quiet) setStatus(tr('runtime.eagleSelectionUnavailable', '当前 Eagle 环境不提供素材读取能力'), 'warn');
+            return Promise.resolve(null);
         }
 
-        var p = Promise.resolve(eagle.item.getSelected());
+        // 调用本身也可能同步抛异常；放进 then 才能与异步 reject 共用同一条 catch。
+        var p = Promise.resolve().then(function () { return eagle.item.getSelected(); });
         if (Core && Core._internal && typeof Core._internal.withTimeout === 'function') {
             p = Core._internal.withTimeout(p, 8000, null);
         }
-
         return p.then(function (items) {
             if (items === null || items === undefined) {
                 log('warn', '读取 Eagle 选中素材超时（8s）');
-                if (!quiet) setStatus('读取 Eagle 素材超时，请重试', 'error');
+                if (!quiet) setStatus(tr('runtime.eagleSelectionTimeout', '读取 Eagle 素材超时，请重试'), 'error');
+                return null;
+            }
+            return Array.isArray(items) ? items : [];
+        }).catch(function (err) {
+            var msg = tr('runtime.eagleSelectionFailed', '读取 Eagle 素材失败：{{message}}', {
+                message: err && err.message ? err.message : err
+            });
+            if (!quiet) setStatus(msg, 'error');
+            log('warn', msg);
+            return null;
+        });
+    }
+
+    /** 仅保留可处理、且当前列表尚未包含的 Eagle 视频素材。 */
+    function freshEagleVideoItems(items) {
+        return (items || []).filter(function (it) {
+            return it && it.filePath && Core.isVideoFile(it.filePath) &&
+                !state.tasks.some(function (t) { return t.path === it.filePath; });
+        });
+    }
+
+    function addEagleItems(items, source) {
+        var fresh = freshEagleVideoItems(items);
+        if (!fresh.length) return 0;
+        var n = addFiles(fresh.map(function (it) { return it.filePath; }), fresh);
+        if (n > 0) {
+            var action = source === 'append'
+                ? tr('runtime.appendedToQueue', '已将 {{count}} 个新素材加入任务队列', { count: n })
+                : tr('runtime.autoLoaded', '已自动载入 {{count}} 个素材', { count: n });
+            setStatus(action, 'ok');
+            log('info', (source === 'append' ? '追加' : '自动导入') + ' Eagle 选中素材 ' + n + ' 个');
+        }
+        return n;
+    }
+
+    function loadFromEagle(opts) {
+        opts = opts || {};
+        var quiet = !!opts.quiet;
+        return getSelectedEagleItems(opts).then(function (items) {
+            if (items === null) {
+                if (!state.tasks.length) {
+                    emptyHint = '读不到 Eagle 素材列表，请用「添加本地文件…」或拖拽视频进来';
+                    renderList();
+                }
                 return;
             }
             if (!items.length) {
-                if (!quiet) setStatus('Eagle 里没有选中任何素材', 'warn');
+                if (!quiet) setStatus(tr('runtime.noEagleSelection', 'Eagle 里没有选中任何素材'), 'warn');
                 else log('info', '自动导入：Eagle 里没有选中素材');
-                emptyHint = 'Eagle 里没有选中素材 —— 先去 Eagle 里选中视频，再打开本插件';
-                renderList();
+                if (!state.tasks.length) {
+                    emptyHint = 'Eagle 里没有选中素材 —— 先去 Eagle 里选中视频，再打开本插件';
+                    renderList();
+                }
                 return;
             }
-            // 先过滤掉已经在列表里的，再交给 addFiles。
-            // 不过滤的话，第二次导入会把同一批素材全判成「重复文件」，
-            // 状态栏弹出一句「已跳过 4 个非视频或重复文件」—— 用户看到只会
-            // 以为是素材坏了。本地测试里就是这么暴露的：init 被两个入口
-            // 触发了一次，界面立刻冒出这句莫名其妙的警告。
-            var fresh = items.filter(function (it) {
-                return it && it.filePath &&
-                    !state.tasks.some(function (t) { return t.path === it.filePath; });
-            });
-
-            if (!fresh.length && items.length) {
-                if (!quiet) setStatus('这些素材已经在列表里了', 'ok');
-                return;
-            }
-
-            var n = addFiles(fresh.map(function (it) { return it.filePath; }), items);
-            if (n > 0) {
-                setStatus('已自动载入 ' + n + ' 个素材', 'ok');
-                log('info', '自动导入 Eagle 选中素材 ' + n + ' 个');
-            } else {
-                if (!quiet) setStatus('选中的素材里没有可处理的视频', 'warn');
+            var n = addEagleItems(items, 'auto');
+            if (!n && !state.tasks.length) {
+                if (!quiet) setStatus(tr('runtime.noProcessableVideos', '选中的素材里没有可处理的视频'), 'warn');
                 emptyHint = '这 ' + items.length + ' 个素材不是可处理的视频文件';
                 renderList();
+            } else if (!n && !quiet) {
+                setStatus(tr('runtime.alreadyInQueue', '这些素材已经在列表里了'), 'ok');
             }
-        })
-            .catch(function (err) {
-                var msg = '读取 Eagle 素材失败：' + (err && err.message ? err.message : err);
-                if (!quiet) setStatus(msg, 'error');
-                log('warn', msg);
-            });
+        });
     }
 
     /**
      * 插件窗口重新显示时调用。
      *
-     * 只在列表为空时补一次：用户已经编辑过列表（删过素材、或手动加过本地
-     * 文件）就不再插手，免得把他刚清掉的东西又塞回来。
+     * 列表为空时自动导入；列表非空时只读取当前 Eagle 选择，发现新视频则让用户
+     * 明确决定取消本次、替换全部任务或追加到队列，绝不悄悄覆盖已有任务。
      */
+    var pendingSelection = null;
+    // Eagle 的 onPluginRun / onPluginShow 可能在一次打开中连续触发；用递增版本丢弃
+    // 晚返回的读取结果，避免用户刚点“取消此次操作”又被陈旧 Promise 重新弹窗。
+    var selectionRequestVersion = 0;
+
+    function selectionSignature(items) {
+        return (items || []).map(function (it) { return it.filePath; }).sort().join('|');
+    }
+
+    function showSelectionDecision(items) {
+        var fresh = freshEagleVideoItems(items);
+        if (!fresh.length) return;
+        var signature = selectionSignature(fresh);
+        if (!dom.selectionMask || (pendingSelection && pendingSelection.signature === signature && !dom.selectionMask.hidden)) return;
+
+        pendingSelection = { items: fresh, signature: signature };
+        var activeCount = state.tasks.filter(function (t) {
+            return t.status === 'queued' || t.status === 'probing' || t.status === 'pending' || t.status === 'running';
+        }).length;
+        dom.selectionDescription.textContent = tr('runtime.selectionDecisionDescription',
+            '当前列表已有 {{current}} 个任务，检测到 {{incoming}} 个新的 Eagle 视频素材。请选择如何处理：', {
+                current: state.tasks.length, incoming: fresh.length
+            });
+        var names = fresh.slice(0, 8).map(function (it) {
+            return '<div class="selection-item">' + escapeHtml(path.basename(it.filePath)) + '</div>';
+        }).join('');
+        if (fresh.length > 8) {
+            names += '<div class="selection-more">' + escapeHtml(tr('runtime.selectionMore', '…以及另外 {{count}} 个素材', {
+                count: fresh.length - 8
+            })) + '</div>';
+        }
+        dom.selectionList.innerHTML = names;
+        dom.selectionMask.hidden = false;
+        log('info', '重新打开插件时检测到 ' + fresh.length + ' 个新 Eagle 素材；当前任务 ' + activeCount + ' 个');
+    }
+
+    function dismissSelectionDecision() {
+        // 主动关闭意味着当前读取结果已无效；所有尚未返回的读取都不得重新打开弹层。
+        selectionRequestVersion++;
+        pendingSelection = null;
+        if (dom.selectionMask) dom.selectionMask.hidden = true;
+    }
+
+    function appendSelectionToQueue() {
+        if (!pendingSelection) return;
+        var items = pendingSelection.items;
+        dismissSelectionDecision();
+        addEagleItems(items, 'append');
+    }
+
+    function replaceQueueWithSelection() {
+        if (!pendingSelection) return;
+        var items = pendingSelection.items;
+        dismissSelectionDecision();
+        var replace = function () {
+            cancelSamplingEstimates();
+            state.tasks = [];
+            autoLoadDone = true;
+            renderList();
+            renderSummary();
+            var n = addEagleItems(items, 'append');
+            setStatus(tr('runtime.replacedWithSelection', '已取消当前任务，并载入 {{count}} 个新素材', { count: n }), 'ok');
+            log('info', '已取消当前所有任务，并替换为 ' + n + ' 个新 Eagle 素材');
+        };
+        if (state.running) {
+            setStatus(tr('runtime.cancellingForReplacement', '正在停止当前任务，随后载入新素材…'), 'warn');
+            cancel().then(replace);
+        } else {
+            replace();
+        }
+    }
+
     function onShow() {
-        if (state.running || !state.ready || state.tasks.length) return;
-        autoLoadDone = false;   // 列表已经空了，允许再自动导入一次
-        autoLoadFromEagle();
+        if (!state.ready) return;
+        var requestVersion = ++selectionRequestVersion;
+        if (!state.tasks.length) {
+            autoLoadDone = false;   // 列表已经空了，允许再自动导入一次
+            autoLoadFromEagle();
+            return;
+        }
+        // 列表非空时也要读取当前 Eagle 选择，但绝不直接覆盖用户的队列。
+        // 发现新的可处理视频后，交给明确的三选项弹层决定。
+        getSelectedEagleItems({ quiet: true }).then(function (items) {
+            if (requestVersion !== selectionRequestVersion) return;
+            if (items && freshEagleVideoItems(items).length) showSelectionDecision(items);
+        });
     }
 
     /** 已经自动导入过一轮，避免 init 被重复触发时反复导入 */
@@ -1519,10 +1794,17 @@
         });
         dom.btnStart.addEventListener('click', start);
         dom.btnCancel.addEventListener('click', cancel);
+        dom.btnAnalyzeAll.addEventListener('click', function () {
+            scheduleSamplingEstimates({ all: true, userRequested: true });
+        });
+        dom.btnStopAnalysis.addEventListener('click', stopSamplingEstimates);
         dom.btnPickBackup.addEventListener('click', pickBackupDir);
 
         dom.btnConfirmCancel.addEventListener('click', function () { dom.confirmMask.hidden = true; });
         dom.btnConfirmOk.addEventListener('click', doStart);
+        dom.btnSelectionCancel.addEventListener('click', dismissSelectionDecision);
+        dom.btnSelectionReplace.addEventListener('click', replaceQueueWithSelection);
+        dom.btnSelectionAppend.addEventListener('click', appendSelectionToQueue);
 
         // 压缩方式切换
         document.querySelectorAll('#modeTabs button').forEach(function (b) {
@@ -1578,11 +1860,47 @@
         });
     }
 
-    // CRF 采样预估是后台低优先级工作：参数变化时取消旧任务，等待一小段时间
-    // 让用户连续调下拉框不会启动一串必然过期的 ffmpeg 进程。
+    // CRF 采样预估是后台低优先级工作。批量导入时不能对每条都立刻起 FFmpeg：
+    // 默认只自动分析最前 3 条，其余由用户点「分析全部」按需展开。
+    var AUTO_SAMPLE_LIMIT = 3;
     var sampleEstimateTimer = null;
     var sampleEstimateToken = null;
     var sampleEstimateRevision = 0;
+    var sampleEstimateCache = {};
+
+    /** 同一个文件 + 文件状态 + 当前视频编码设置，才能复用同一次会话内的采样结果。 */
+    function sampleCacheKey(t) {
+        if (!t || !t.meta) return '';
+        var mtime = 0;
+        try { mtime = fs.statSync(t.path).mtimeMs || 0; } catch (e) {}
+        var s = state.settings || {};
+        return [t.path, t.meta.size || 0, mtime, s.codec, s.speedIndex, s.resolution,
+            s.customHeight, s.fps, s.audioMode, s.audioBitrate, s.mode, s.crf].join('|');
+    }
+
+    function updateSampleAnalysisControls() {
+        if (!dom || !dom.sampleAnalysisControls) return;
+        var candidates = state.tasks.filter(function (t) {
+            return t.meta && t.status !== 'done' && t.status !== 'error' && t.status !== 'incompatible';
+        });
+        if (state.settings.mode !== 'crf' || !candidates.length) {
+            dom.sampleAnalysisControls.hidden = true;
+            return;
+        }
+        var ready = candidates.filter(function (t) { return t.sampleStatus === 'ready'; }).length;
+        var active = candidates.filter(function (t) {
+            return t.sampleStatus === 'waiting' || t.sampleStatus === 'running';
+        }).length;
+        var deferred = candidates.filter(function (t) { return t.sampleStatus === 'deferred'; }).length;
+        dom.sampleAnalysisControls.hidden = false;
+        dom.sampleAnalysisStatus.textContent = active
+            ? tr('runtime.sampleProgress', '正在分析 {{ready}}/{{total}}', { ready: ready, total: candidates.length })
+            : deferred
+                ? tr('runtime.sampleLimited', '已分析 {{ready}}/{{total}}，其余按需分析', { ready: ready, total: candidates.length })
+                : tr('runtime.sampleComplete', '已分析 {{ready}}/{{total}}', { ready: ready, total: candidates.length });
+        dom.btnAnalyzeAll.disabled = state.running || (!deferred && !active);
+        dom.btnStopAnalysis.disabled = !active;
+    }
 
     function cancelSamplingEstimates() {
         sampleEstimateRevision++;
@@ -1592,9 +1910,25 @@
         }
         if (sampleEstimateToken) sampleEstimateToken.cancelled = true;
         sampleEstimateToken = null;
+        updateSampleAnalysisControls();
     }
 
-    function scheduleSamplingEstimates() {
+    function stopSamplingEstimates() {
+        cancelSamplingEstimates();
+        state.tasks.forEach(function (t) {
+            if (t.sampleStatus === 'waiting' || t.sampleStatus === 'running') {
+                t.sampleStatus = 'deferred';
+                t.liveInfo = '';
+                renderTask(t);
+            }
+        });
+        renderSummary();
+        updateSampleAnalysisControls();
+        setStatus(tr('runtime.analysisStopped', '已停止后台分析'), 'ok');
+    }
+
+    function scheduleSamplingEstimates(opts) {
+        opts = opts || {};
         cancelSamplingEstimates();
         if (!state.ready || state.running || state.settings.mode !== 'crf') return;
 
@@ -1603,24 +1937,44 @@
         });
         if (!tasks.length) return;
 
-        var revision = sampleEstimateRevision;
+        var uncached = [];
         tasks.forEach(function (t) {
-            t.sampleEstimate = null;
+            var key = sampleCacheKey(t);
+            var cached = key && sampleEstimateCache[key];
             t.sampleError = '';
-            t.sampleStatus = 'waiting';
+            t.liveInfo = '';
+            t.sampleCacheKey = key;
+            if (cached) {
+                t.sampleEstimate = cached;
+                t.sampleStatus = 'ready';
+            } else {
+                t.sampleEstimate = null;
+                uncached.push(t);
+            }
+        });
+
+        // 默认少量自动分析；用户显式点击才铺开全部。
+        var selected = opts.all ? uncached : uncached.slice(0, AUTO_SAMPLE_LIMIT);
+        uncached.forEach(function (t) {
+            t.sampleStatus = selected.indexOf(t) >= 0 ? 'waiting' : 'deferred';
             renderTask(t);
         });
+        tasks.forEach(function (t) { renderTask(t); });
         renderSummary();
+        updateSampleAnalysisControls();
+        if (!selected.length) return;
 
+        var revision = sampleEstimateRevision;
         sampleEstimateTimer = setTimeout(function () {
             sampleEstimateTimer = null;
             if (revision !== sampleEstimateRevision || state.running || state.settings.mode !== 'crf') return;
 
             var token = { cancelled: false };
             sampleEstimateToken = token;
+            updateSampleAnalysisControls();
             var chain = Promise.resolve();
 
-            tasks.forEach(function (t) {
+            selected.forEach(function (t) {
                 chain = chain.then(function () {
                     if (token.cancelled || revision !== sampleEstimateRevision || state.running) return;
                     // 已被移出列表 / 已开始正式压缩的任务不再浪费 CPU。
@@ -1629,6 +1983,7 @@
                     t.sampleStatus = 'running';
                     renderTask(t);
                     renderSummary();
+                    updateSampleAnalysisControls();
                     log('info', '[' + t.name + '] 开始 CRF 采样预估');
 
                     return Core.estimateCrfBySampling(state.bins, t.meta, state.settings, {
@@ -1636,14 +1991,17 @@
                         onProgress: function (info) {
                             if (token.cancelled || revision !== sampleEstimateRevision) return;
                             t.sampleStatus = 'running';
-                            t.liveInfo = '预估分析 ' + info.index + '/' + info.total;
-                            renderTask(t);
+                            t.liveInfo = tr('runtime.sampleTaskProgress', '预估分析 {{index}}/{{total}}', {
+                                index: info.index, total: info.total
+                            });
+                            scheduleProgressRender(t);
                         }
                     }).then(function (result) {
                         if (token.cancelled || revision !== sampleEstimateRevision || !result) return;
                         t.sampleEstimate = result;
                         t.sampleStatus = 'ready';
                         t.liveInfo = '';
+                        if (t.sampleCacheKey) sampleEstimateCache[t.sampleCacheKey] = result;
                         log('info', '[' + t.name + '] CRF 预估完成：' +
                             F.bytes(result.low) + '～' + F.bytes(result.high) +
                             '（' + result.sampleCount + ' 段采样）');
@@ -1657,12 +2015,16 @@
                         if (revision !== sampleEstimateRevision) return;
                         renderTask(t);
                         renderSummary();
+                        updateSampleAnalysisControls();
                     });
                 });
             });
 
             chain.then(function () {
-                if (revision === sampleEstimateRevision) sampleEstimateToken = null;
+                if (revision === sampleEstimateRevision) {
+                    sampleEstimateToken = null;
+                    updateSampleAnalysisControls();
+                }
             });
         }, 350);
     }
@@ -1684,6 +2046,7 @@
             if (t.meta && t.status !== 'running' && t.status !== 'done') renderTask(t);
         });
         renderSummary();
+        updateSampleAnalysisControls();
     }
 
     // -----------------------------------------------------------------
@@ -1748,13 +2111,23 @@
             sumSpaceItem: $('sumSpaceItem'),
             sumSaved: $('sumSaved'),
             estimateNote: $('estimateNote'),
+            sampleAnalysisControls: $('sampleAnalysisControls'),
+            sampleAnalysisStatus: $('sampleAnalysisStatus'),
+            btnAnalyzeAll: $('btnAnalyzeAll'),
+            btnStopAnalysis: $('btnStopAnalysis'),
             btnStart: $('btnStart'),
             btnCancel: $('btnCancel'),
             confirmMask: $('confirmMask'),
             confirmWarn: $('confirmWarn'),
             confirmList: $('confirmList'),
             btnConfirmOk: $('btnConfirmOk'),
-            btnConfirmCancel: $('btnConfirmCancel')
+            btnConfirmCancel: $('btnConfirmCancel'),
+            selectionMask: $('selectionMask'),
+            selectionDescription: $('selectionDescription'),
+            selectionList: $('selectionList'),
+            btnSelectionCancel: $('btnSelectionCancel'),
+            btnSelectionReplace: $('btnSelectionReplace'),
+            btnSelectionAppend: $('btnSelectionAppend')
         };
 
         // 依赖自检必须放在最前面。
@@ -1937,7 +2310,12 @@
         // 仅供本地回归调用：验证汇总/单任务的展示状态，不绕开实际业务逻辑。
         _internal: {
             renderSummary: renderSummary,
-            renderTask: renderTask
+            renderTask: renderTask,
+            sampleCacheKey: sampleCacheKey,
+            scheduleSamplingEstimates: scheduleSamplingEstimates,
+            stopSamplingEstimates: stopSamplingEstimates,
+            updateSampleAnalysisControls: updateSampleAnalysisControls,
+            atomicReplaceFileAsync: atomicReplaceFileAsync
         }
     };
 })(typeof self !== 'undefined' ? self : globalThis);

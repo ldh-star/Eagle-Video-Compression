@@ -1,5 +1,9 @@
 {
-  "manifest": { "app": { "name": "Сжатие видео" } },
+  "manifest": {
+    "app": {
+      "name": "Сжатие видео"
+    }
+  },
   "ui": {
     "brandName": "Сжатие видео",
     "brandSubtitle": "Пакетное перекодирование · Статистика места",
@@ -77,7 +81,15 @@
     "speedFast": "Быстро",
     "speedBalanced": "Сбалансированно",
     "speedSlow": "Медленно",
-    "speedVerySlow": "Очень медленно (файлы меньше)"
+    "speedVerySlow": "Очень медленно (файлы меньше)",
+    "analyzeAll": "Анализировать все",
+    "stopAnalysis": "Остановить анализ",
+    "cancelTasks": "Остановить и отменить",
+    "cancelTasksTitle": "Остановить обрабатываемое видео и отменить ещё не начатые задачи",
+    "selectionTitle": "Обнаружено новое выделение Eagle",
+    "selectionCancel": "Отменить это действие",
+    "selectionReplace": "Отменить все текущие задачи и заменить",
+    "selectionAppend": "Добавить в очередь задач"
   },
   "runtime": {
     "saved": "{{prefix}}сэкономлено {{percent}}% ({{size}})",
@@ -114,6 +126,24 @@
     "audioCopyHint": "Копировать исходное аудио без потери качества, но без экономии места",
     "audioNoneHint": "Удаление аудио может значительно уменьшить размер видео",
     "notificationTitle": "Сжатие видео завершено",
-    "notificationBody": "Обработано видео: {{count}}, {{change}}"
+    "notificationBody": "Обработано видео: {{count}}, {{change}}",
+    "analysisDeferred": "Ожидание ручного анализа",
+    "sampleProgress": "Анализ {{ready}}/{{total}}",
+    "sampleLimited": "Проанализировано {{ready}}/{{total}}; остальное — по запросу",
+    "sampleComplete": "Проанализировано {{ready}}/{{total}}",
+    "analysisStopped": "Фоновый анализ остановлен",
+    "sampleTaskProgress": "Анализ выборки {{index}}/{{total}}",
+    "cancelling": "Остановка и отмена задач…",
+    "eagleSelectionUnavailable": "В этой среде Eagle нельзя прочитать выбранные элементы",
+    "eagleSelectionTimeout": "Время чтения выбора Eagle истекло. Повторите попытку.",
+    "eagleSelectionFailed": "Не удалось прочитать выбор Eagle: {{message}}",
+    "noEagleSelection": "В Eagle ничего не выбрано",
+    "noProcessableVideos": "Выбранные элементы не содержат обрабатываемых видео",
+    "alreadyInQueue": "Эти элементы уже находятся в очереди",
+    "appendedToQueue": "В очередь задач добавлено новых элементов: {{count}}",
+    "selectionDecisionDescription": "В текущем списке {{current}} задач. Обнаружено новых видео Eagle: {{incoming}}. Выберите дальнейшее действие:",
+    "selectionMore": "…и ещё {{count}} элементов",
+    "replacedWithSelection": "Текущие задачи отменены; загружено новых элементов: {{count}}",
+    "cancellingForReplacement": "Текущие задачи останавливаются, затем будут загружены новые элементы…"
   }
 }

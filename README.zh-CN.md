@@ -107,17 +107,15 @@
 - UI 交互、设置持久化、CRF 采样预估和国际化
 - Eagle 自带与本机 FFmpeg 的跨版本兼容性
 
-使用 Node.js 22 或更高版本运行主要检查：
+仓库内保留的回归测试基于 Node.js 22 或更高版本与 jsdom 运行：
 
 ```bash
 NODE=/Users/hongliang/.workbuddy/binaries/node/versions/22.12.0/bin/node
-cd /Users/hongliang/.workbuddy/skills/eagle-plugin-local-e2e/scripts
-$NODE test_settings_and_ux.js
-$NODE test_nodeintegration.js
-$NODE test_ui.js
-```
+cd /Users/hongliang/StudioProjects/Mine/视频压缩
 
-完整测试清单请参见项目测试脚本及相关验证说明。
+$NODE tests/test_hevc_apple_compat.js   # HEVC / Apple 容器兼容性
+$NODE tests/test_queue_intake.js        # 任务取消、素材接入、原子提交
+```
 
 ## 项目结构
 
@@ -125,6 +123,7 @@ $NODE test_ui.js
 ├── manifest.json        # Eagle 插件清单与语言声明
 ├── index.html           # 插件窗口 HTML
 ├── css/style.css        # 支持主题切换的界面样式
+├── tests/               # Node.js + jsdom 回归测试
 ├── js/
 │   ├── app.js           # 界面、队列、设置与 Eagle 编排
 │   ├── ffmpeg.js        # FFmpeg 探测、参数、执行和采样预估
@@ -134,6 +133,34 @@ $NODE test_ui.js
 │   └── plugin.js        # Eagle 生命周期接入
 └── _locales/            # 多语言文案
 ```
+
+## 更新日志
+
+### 1.0.1
+
+**修复**
+
+- **H.265 产物在 macOS 无法播放与预览。** FFmpeg 将 HEVC 写入 MP4 / MOV 时默认使用 `hev1` sample entry，把 VPS/SPS/PPS 参数集留在码流里。FFmpeg、Chrome 和 Eagle 会自行去码流中解析，因此能正常播放；但 Apple 的解码栈要求 `hvc1`（参数集写进容器描述信息），否则就表现为「Eagle 里能放，Finder、Quick Look、QuickTime 都打不开」。现在输出为 `.mp4`、`.mov`、`.m4v` 的 HEVC 产物都会带上 `-tag:v hvc1`。
+  - 该标签只作用于真正的 HEVC 流。「仅重新封装」模式下目标编码器是 `copy`，看不出真实码流格式，因此必须回看探测到的源编码；给 H.264 流套 `hvc1` 会让 MP4 muxer 在写头时直接失败，整个任务报废。
+  - 已经压坏的 `hev1` 文件不需要重编码，无损重新封装即可：
+    `ffmpeg -i broken.mp4 -map 0 -c copy -tag:v hvc1 fixed.mp4`
+- **替换原文件不再是崩溃安全的。** 之前的做法是把编码产物直接复制覆盖到原路径，中途失败会留下被截断或部分覆盖的原文件。现在改为「在原文件同目录写 staging 文件 → 原子 rename 提交」，取消或 I/O 失败时原文件保持不变。
+- **`eagle.item.getSelected()` 同步抛出的异常未被捕获。** 现已包装调用，使同步失败与异步 reject 共用同一条错误处理路径。
+- **陈旧的选中素材回调会重新弹出已关闭的对话框。** Eagle 可能在一次打开中连续触发 `onPluginRun` / `onPluginShow`。现在用递增版本号丢弃晚返回的读取结果，用户点过「取消此次操作」后不会再被重新弹窗。
+
+**新增**
+
+- **压缩过程中可见的「停止并取消」入口。** 点击后立即通知 FFmpeg 终止当前编码，把尚未开始的任务标记为已取消，并等待子进程退出、临时文件清理完成后再结束本轮。
+- **在 Eagle 中重新选中素材打开插件时的三选项。** 之前的实际体验是：窗口会打开，但新素材无法加入已有任务列表。现在会明确询问：取消此次操作（保留当前队列）、取消当前所有任务并重新添加新选中素材、把新素材加入任务队列。任何情况下都不会静默丢弃进行中的工作。
+- **支持向正在运行的队列追加素材。** 压缩过程中追加的新素材会在探测完成后由空闲 worker 在本轮继续处理，无需等到下一轮。
+- **采样预估控制。** 批量导入默认只采样少量素材；界面现在显示采样进度，并提供「分析全部」和「停止分析」入口。
+
+**优化**
+
+- 并发数从「进程数量」改为「资源预算」。worker 数由 CPU 核心数、编码器和是否两遍编码推算，并为每个编码器显式设置线程上限，避免多个自带多线程的 FFmpeg 进程互相抢满全部核心。
+- 源文件目录可写时，中间产物直接写在该目录下，避免素材存在外置盘或网络盘时额外复制一次大文件；目录不可写时安全回退到系统临时目录。
+- FFmpeg 的 `stderr` 只保留末尾 64 KB，不再随长时间多 worker 任务无限增长。
+- 进度渲染以 120ms 节流，并复用缓存的任务行节点，不再每个进度事件都重新查询 DOM。
 
 ## 参与贡献
 

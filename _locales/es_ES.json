@@ -1,5 +1,9 @@
 {
-  "manifest": { "app": { "name": "Comprimir vídeo" } },
+  "manifest": {
+    "app": {
+      "name": "Comprimir vídeo"
+    }
+  },
   "ui": {
     "brandName": "Comprimir vídeo",
     "brandSubtitle": "Transcodificación por lotes · Estadísticas de almacenamiento",
@@ -77,7 +81,15 @@
     "speedFast": "Rápido",
     "speedBalanced": "Equilibrado",
     "speedSlow": "Lento",
-    "speedVerySlow": "Muy lento (archivos más pequeños)"
+    "speedVerySlow": "Muy lento (archivos más pequeños)",
+    "analyzeAll": "Analizar todo",
+    "stopAnalysis": "Detener análisis",
+    "cancelTasks": "Detener y cancelar",
+    "cancelTasksTitle": "Detiene el vídeo en curso y cancela las tareas que aún no empezaron",
+    "selectionTitle": "Se detectó una nueva selección de Eagle",
+    "selectionCancel": "Cancelar esta acción",
+    "selectionReplace": "Cancelar todas las tareas actuales y reemplazar",
+    "selectionAppend": "Añadir a la cola de tareas"
   },
   "runtime": {
     "saved": "{{prefix}}ahorro de {{percent}}% ({{size}})",
@@ -114,6 +126,24 @@
     "audioCopyHint": "Copiar el audio original sin pérdida de calidad, pero sin ahorro de espacio",
     "audioNoneHint": "Eliminar el audio puede reducir considerablemente el tamaño del vídeo",
     "notificationTitle": "Compresión de vídeo completada",
-    "notificationBody": "Se procesaron {{count}} vídeos, {{change}}"
+    "notificationBody": "Se procesaron {{count}} vídeos, {{change}}",
+    "analysisDeferred": "En espera de análisis manual",
+    "sampleProgress": "Analizando {{ready}}/{{total}}",
+    "sampleLimited": "Analizados {{ready}}/{{total}}; analiza el resto cuando lo necesites",
+    "sampleComplete": "Analizados {{ready}}/{{total}}",
+    "analysisStopped": "Análisis en segundo plano detenido",
+    "sampleTaskProgress": "Analizando muestra {{index}}/{{total}}",
+    "cancelling": "Deteniendo y cancelando tareas…",
+    "eagleSelectionUnavailable": "Este entorno de Eagle no puede leer los elementos seleccionados",
+    "eagleSelectionTimeout": "Se agotó el tiempo al leer la selección de Eagle. Inténtalo de nuevo.",
+    "eagleSelectionFailed": "No se pudo leer la selección de Eagle: {{message}}",
+    "noEagleSelection": "No hay elementos seleccionados en Eagle",
+    "noProcessableVideos": "Los elementos seleccionados no contienen vídeos procesables",
+    "alreadyInQueue": "Estos elementos ya están en la cola",
+    "appendedToQueue": "Se añadieron {{count}} elementos nuevos a la cola de tareas",
+    "selectionDecisionDescription": "La lista actual contiene {{current}} tareas. Se detectaron {{incoming}} vídeos nuevos de Eagle. Elige cómo continuar:",
+    "selectionMore": "…y {{count}} elementos más",
+    "replacedWithSelection": "Se cancelaron las tareas actuales y se cargaron {{count}} elementos nuevos",
+    "cancellingForReplacement": "Deteniendo las tareas actuales y cargando después los nuevos elementos…"
   }
 }

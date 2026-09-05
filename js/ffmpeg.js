@@ -200,7 +200,66 @@
     // 便于启动时统一回收上次异常退出留下的垃圾。
     var TEMP_PREFIXES = ['eagle-vc-out-', 'eagle-vc-pass-', 'eagle-vc-sample-'];
 
+    // FFmpeg 在异常素材上可能持续输出错误信息；只需要最后几行诊断，不需要
+    // 把完整 stderr 永久留在内存。64 KB 足够保留多个错误上下文，也不会让
+    // 多路长任务的日志缓存无限增长。
+    var STDERR_TAIL_LIMIT = 64 * 1024;
+
     var STALE_AGE_MS = 6 * 60 * 60 * 1000;   // 6 小时
+
+    /**
+     * 截取文本尾部。错误通常在最后输出，所以丢前面、留最后面。
+     * 这是纯函数，方便所有调用方保持相同的内存上限。
+     */
+    function tailText(text, limit) {
+        text = String(text || '');
+        limit = Math.max(0, Number(limit) || 0);
+        return text.length > limit ? text.slice(text.length - limit) : text;
+    }
+
+    /**
+     * 在源文件目录可写时，同卷写临时产物：之后覆盖原文件不需要跨卷复制。
+     * 无权限、网络盘异常或路径不可解析时，安全回退系统临时目录。
+     */
+    function preferredTempDir(sourcePath) {
+        var dir = path.dirname(sourcePath || '');
+        try {
+            if (dir && fs && fs.existsSync(dir)) {
+                fs.accessSync(dir, fs.constants ? fs.constants.W_OK : fs.W_OK);
+                return dir;
+            }
+        } catch (e) {}
+        return os.tmpdir();
+    }
+
+    /**
+     * 根据编码负载与可用 CPU 核数给出安全的实际 worker 数。
+     * concurrency 仍是用户上限：用户选择 1 时绝不会被抬高；高负载编码器则
+     * 适当收敛，避免多个自带多线程的 FFmpeg 进程互相抢满全部核心。
+     */
+    function recommendedWorkerCount(settings, cpuCount, taskCount) {
+        settings = settings || {};
+        var requested = Math.max(1, Math.min(4, Number(settings.concurrency) || 1));
+        var cores = Math.max(1, Number(cpuCount) || 1);
+        var tasks = Math.max(1, Number(taskCount) || 1);
+        var cap;
+
+        // AV1 与目标大小的两遍编码都属于高 CPU / 长任务，默认单 worker。
+        if (settings.codec === 'av1' || settings.mode === 'target') cap = 1;
+        else cap = Math.max(1, Math.min(4, Math.floor(cores / 4)));
+
+        return Math.max(1, Math.min(requested, cap, tasks));
+    }
+
+    /**
+     * 把总核心数分给实际 worker；只由运行时计划使用，不写回用户设置。
+     * 留一个核心给 Eagle/UI，单 worker 时最多给 8 线程，避免极端机器上失控。
+     */
+    function recommendedThreadCount(cpuCount, workerCount) {
+        var cores = Math.max(1, Number(cpuCount) || 1);
+        var workers = Math.max(1, Number(workerCount) || 1);
+        return Math.max(1, Math.min(8, Math.floor(Math.max(1, cores - 1) / workers)));
+    }
 
     // 探测 FFmpeg 时等待 Eagle 依赖插件响应的上限。
     // 依赖插件走 IPC，超时后直接回落到系统 PATH，不让 UI 干等。
@@ -670,6 +729,11 @@
 
         args.push('-c:v', codec.encoder);
 
+        // worker 数已按整机预算收敛；这里再给每个编码器明确线程上限，
+        // 防止 x264/x265/AV1 默认自动吃满全部核心，导致多任务反而更慢。
+        var threads = parseInt(settings.runtimeThreads, 10);
+        if (isFinite(threads) && threads > 0) args.push('-threads', String(threads));
+
         if (codec.speeds) {
             var speed = codec.speeds[settings.speedIndex] || codec.speeds[2];
             args = args.concat(codec.speedArgs(speed));
@@ -700,6 +764,44 @@
         // H.264 / H.265 通用兼容性：主线程 profile
         if (codec.id === 'h264') args.push('-profile:v', 'high');
         return args;
+    }
+
+    // 这些容器走 QuickTime/MP4 的 sample entry 体系，Apple 的解码器要求 hvc1。
+    // MKV / WebM / TS 用自己的封装，不需要也不接受这个标签。
+    var HVC1_CONTAINERS = ['.mp4', '.mov', '.m4v'];
+
+    /**
+     * 判断输出视频流最终是不是 HEVC。
+     *
+     * 「复制视频流」模式下 codec.id 是 copy，真正决定码流格式的是源文件本身，
+     * 所以必须回看探测结果，否则会给 H.264 源硬套 HEVC 标签。
+     */
+    function outputIsHevc(codec, meta) {
+        if (!codec) return false;
+        if (codec.id === 'h265') return true;
+        if (codec.id === 'copy') {
+            return !!(meta && meta.video && /^(hevc|h265)$/i.test(meta.video.codec || ''));
+        }
+        return false;
+    }
+
+    /**
+     * 输出容器兼容性参数。
+     *
+     * FFmpeg 对 H.265 写 MP4 / MOV 时默认使用 hev1 sample entry，把 VPS/SPS/PPS
+     * 留在码流里。FFmpeg / Chrome 能自行解析，所以 Eagle 内可以播放；但 macOS
+     * Finder、Quick Look 和 QuickTime 要求 hvc1（参数集放进容器描述），否则
+     * 表现就是「Eagle 里能放，系统里打不开也预览不了」。本地实测：hev1 产物经
+     * AVFoundation 解出的 isPlayable 为 false、硬解码直接报 Cannot Decode，
+     * 换成 hvc1 后全部恢复。
+     *
+     * 反过来也一样要小心：把 hvc1 套在 H.264 流上，mp4 muxer 会直接写头失败
+     * （Tag hvc1 incompatible with output codec id '27'），整个任务报废。
+     * 所以这里只认真正的 HEVC 流。
+     */
+    function containerCompatibilityArgs(ext, codec, meta) {
+        if (HVC1_CONTAINERS.indexOf(ext) === -1) return [];
+        return outputIsHevc(codec, meta) ? ['-tag:v', 'hvc1'] : [];
     }
 
     function buildPlan(meta, settings, outputPath, passLogPrefix) {
@@ -742,6 +844,9 @@
         } else {
             args.push('-c:a', resolveAudioEncoder(ext), '-b:a', settings.audioBitrate + 'k');
         }
+
+        // ---- 容器兼容性 ----
+        args = args.concat(containerCompatibilityArgs(ext, codec, meta));
 
         // ---- 两遍编码 ----
         var passes;
@@ -964,7 +1069,7 @@
             child.stdout.on('data', onStdoutChunk);
             child.stderr.on('data', function (d) {
                 var s = d.toString();
-                stderr += s;
+                stderr = tailText(stderr + s, STDERR_TAIL_LIMIT);
                 if (opts.onStderr) opts.onStderr(s);
             });
             child.on('error', reject);
@@ -1009,7 +1114,7 @@
             return run(binaries.ffmpeg, passArgs, {
                 cancelToken: opts.cancelToken,
                 onStderr: function (s) {
-                    stderrLog += s;
+                    stderrLog = tailText(stderrLog + s, STDERR_TAIL_LIMIT);
                     if (opts.onStderr) opts.onStderr(s);
                 },
                 onProgress: function (p) {
@@ -1116,6 +1221,10 @@
             normalizeProbe: normalizeProbe,
             resolveTargetHeight: resolveTargetHeight,
             sampleWindows: sampleWindows,
+            tailText: tailText,
+            preferredTempDir: preferredTempDir,
+            recommendedWorkerCount: recommendedWorkerCount,
+            recommendedThreadCount: recommendedThreadCount,
             withTimeout: withTimeout
         }
     };

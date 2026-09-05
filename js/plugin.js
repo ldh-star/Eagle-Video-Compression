@@ -186,10 +186,9 @@
             boot('onPluginCreate');
         });
 
-        // 窗口再次显示时，顺带补一次 Eagle 选中素材的自动导入。
-        // 只放在 onShow 里：boot() 有 booted 防重入，靠它补不了；
-        // 而 App.onShow() 内部只在列表为空时才真的动手，不会覆盖用户
-        // 已经编辑过的内容。
+        // 窗口再次显示时读取 Eagle 当前选中素材。
+        // 空列表会自动导入；列表非空且发现新视频时由 App.onShow() 弹出三选项，
+        // 让用户选择取消本次、替换当前任务或追加进队列，绝不静默覆盖内容。
         function onShowSafe() {
             try {
                 if (window.App && typeof window.App.onShow === 'function') window.App.onShow();

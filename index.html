@@ -49,11 +49,16 @@
             <!-- 预估的精度说明。CRF 模式只能按经验模型估，必须说清楚，
                  否则用户会把「预估」当成「保证」。 -->
             <div class="estimate-note" id="estimateNote" hidden></div>
+            <div class="sample-analysis-controls" id="sampleAnalysisControls" hidden>
+                <span class="sample-analysis-status" id="sampleAnalysisStatus" aria-live="polite"></span>
+                <button type="button" class="link-btn" id="btnAnalyzeAll" data-i18n="ui.analyzeAll">分析全部</button>
+                <button type="button" class="link-btn" id="btnStopAnalysis" data-i18n="ui.stopAnalysis" disabled>停止分析</button>
+            </div>
 
             <div class="actionbar-spacer"></div>
 
             <div class="actions" data-page-node-id="v9ibVznQUo6M7caY6U4WnJ">
-                <button type="button" class="btn" id="btnCancel" disabled data-i18n="ui.cancel" data-page-node-id="RRKworojVkjHPzSf1MFjKx">取消</button>
+                <button type="button" class="btn danger" id="btnCancel" disabled data-i18n="ui.cancelTasks" data-i18n-title="ui.cancelTasksTitle" title="立即停止正在处理的视频，并取消尚未开始的任务" data-page-node-id="RRKworojVkjHPzSf1MFjKx">停止并取消</button>
                 <button type="button" class="btn primary big" id="btnStart" disabled data-i18n="ui.startCompression" data-page-node-id="xtxpqSZoQG6I9F3bazpttb">开始压缩</button>
             </div>
         </section>
@@ -218,6 +223,22 @@
             <div class="modal-actions" data-page-node-id="iyC94C2edOVKofeKBs36yA">
                 <button type="button" class="btn" id="btnConfirmCancel" data-page-node-id="jPKcFFRN6YQvEt1aC1JqNT">再想想</button>
                 <button type="button" class="btn danger" id="btnConfirmOk" data-page-node-id="HBQiB9v24J1Em1prJ5g8Kw">确认开始</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Eagle 中重新打开插件、且当前列表已有任务时的选择弹层。 -->
+    <div class="modal-mask" id="selectionMask" hidden>
+        <div class="modal selection-modal">
+            <div class="modal-title" id="selectionTitle">检测到新的 Eagle 选中素材</div>
+            <div class="modal-body">
+                <div class="selection-description" id="selectionDescription"></div>
+                <div class="selection-list" id="selectionList"></div>
+            </div>
+            <div class="modal-actions selection-actions">
+                <button type="button" class="btn" id="btnSelectionCancel">取消此次操作</button>
+                <button type="button" class="btn danger" id="btnSelectionReplace">取消当前所有任务并重新添加</button>
+                <button type="button" class="btn primary" id="btnSelectionAppend">加入任务队列</button>
             </div>
         </div>
     </div>

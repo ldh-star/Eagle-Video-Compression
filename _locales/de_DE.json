@@ -1,5 +1,9 @@
 {
-  "manifest": { "app": { "name": "Video komprimieren" } },
+  "manifest": {
+    "app": {
+      "name": "Video komprimieren"
+    }
+  },
   "ui": {
     "brandName": "Video komprimieren",
     "brandSubtitle": "Stapel-Transkodierung · Speicherstatistik",
@@ -77,7 +81,15 @@
     "speedFast": "Schnell",
     "speedBalanced": "Ausgewogen",
     "speedSlow": "Langsam",
-    "speedVerySlow": "Sehr langsam (kleinste Dateien)"
+    "speedVerySlow": "Sehr langsam (kleinste Dateien)",
+    "analyzeAll": "Alle analysieren",
+    "stopAnalysis": "Analyse stoppen",
+    "cancelTasks": "Anhalten und abbrechen",
+    "cancelTasksTitle": "Aktuell verarbeitetes Video anhalten und noch nicht gestartete Aufgaben abbrechen",
+    "selectionTitle": "Neue Eagle-Auswahl erkannt",
+    "selectionCancel": "Diesen Vorgang abbrechen",
+    "selectionReplace": "Alle aktuellen Aufgaben abbrechen und ersetzen",
+    "selectionAppend": "Zur Aufgabenliste hinzufügen"
   },
   "runtime": {
     "saved": "{{prefix}}{{percent}} % gespart ({{size}})",
@@ -114,6 +126,24 @@
     "audioCopyHint": "Originalton ohne Qualitätsverlust kopieren, aber ohne Speicherersparnis",
     "audioNoneHint": "Das Entfernen von Audio kann die Videogröße deutlich verringern",
     "notificationTitle": "Videokomprimierung abgeschlossen",
-    "notificationBody": "{{count}} Videos verarbeitet, {{change}}"
+    "notificationBody": "{{count}} Videos verarbeitet, {{change}}",
+    "analysisDeferred": "Wartet auf manuelle Analyse",
+    "sampleProgress": "Analyse {{ready}}/{{total}}",
+    "sampleLimited": "{{ready}}/{{total}} analysiert; Rest bei Bedarf analysieren",
+    "sampleComplete": "{{ready}}/{{total}} analysiert",
+    "analysisStopped": "Hintergrundanalyse beendet",
+    "sampleTaskProgress": "Schätzanalyse {{index}}/{{total}}",
+    "cancelling": "Aufgaben werden angehalten und abgebrochen…",
+    "eagleSelectionUnavailable": "Diese Eagle-Umgebung kann keine ausgewählten Elemente lesen",
+    "eagleSelectionTimeout": "Zeitüberschreitung beim Lesen der Eagle-Auswahl. Bitte erneut versuchen.",
+    "eagleSelectionFailed": "Eagle-Auswahl kann nicht gelesen werden: {{message}}",
+    "noEagleSelection": "In Eagle sind keine Elemente ausgewählt",
+    "noProcessableVideos": "Die Auswahl enthält keine verarbeitbaren Videos",
+    "alreadyInQueue": "Diese Elemente sind bereits in der Warteschlange",
+    "appendedToQueue": "{{count}} neue Elemente zur Warteschlange hinzugefügt",
+    "selectionDecisionDescription": "Die aktuelle Liste enthält {{current}} Aufgaben. {{incoming}} neue Eagle-Videos wurden erkannt. Wie möchten Sie fortfahren?",
+    "selectionMore": "…und {{count}} weitere Elemente",
+    "replacedWithSelection": "Aktuelle Aufgaben abgebrochen; {{count}} neue Elemente geladen",
+    "cancellingForReplacement": "Aktuelle Aufgaben werden angehalten, danach werden neue Elemente geladen…"
   }
 }
