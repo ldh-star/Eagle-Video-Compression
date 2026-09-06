@@ -89,7 +89,18 @@
     "selectionTitle": "偵測到新的 Eagle 選取素材",
     "selectionCancel": "取消此次操作",
     "selectionReplace": "取消目前所有任務並重新新增",
-    "selectionAppend": "加入任務佇列"
+    "selectionAppend": "加入任務佇列",
+    "writeMarker": "壓縮後寫入「已壓縮」標記",
+    "writeMarkerHint": "下次再壓縮同一檔案時，清單裡會顯示壓縮次數與日期。AVI / TS 等容器存不下此標記",
+    "hdr_hdr10": "HDR10",
+    "hdr_hlg": "HLG",
+    "hdr_dolbyVision": "杜比視界",
+    "hdr_hdr10Plus": "HDR10+",
+    "hdr_hdr": "HDR",
+    "hdrDetected": "偵測到 HDR 內容（{{detail}}）",
+    "compressedTimes": "已壓縮 {{count}} 次",
+    "compressedOnce": "已壓縮過",
+    "compressedTitle": "本插件於 {{date}} 以 {{codec}} 壓縮過"
   },
   "runtime": {
     "saved": "{{prefix}}省 {{percent}}%（{{size}}）",
@@ -144,6 +155,7 @@
     "selectionDecisionDescription": "目前清單已有 {{current}} 個任務，偵測到 {{incoming}} 個新的 Eagle 影片素材。請選擇如何處理：",
     "selectionMore": "…以及另外 {{count}} 個素材",
     "replacedWithSelection": "已取消目前任務，並載入 {{count}} 個新素材",
-    "cancellingForReplacement": "正在停止目前任務，隨後載入新素材…"
+    "cancellingForReplacement": "正在停止目前任務，隨後載入新素材…",
+    "alreadyCompressedCount": "其中 {{count}} 個檔案此前已被本插件壓縮過，再次壓縮會持續損失畫質"
   }
 }

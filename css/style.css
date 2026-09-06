@@ -565,6 +565,56 @@ input[type="range"]::-webkit-slider-thumb {
 }
 .estimate-note.warn { color: var(--warn); }
 
+/* HDR / 已压缩 色块。元信息行全是灰字，这两个必须跳出来，
+   否则「这是 HDR」「这个文件压过」等于没说。 */
+.tag {
+    display: inline-block;
+    padding: 0 5px;
+    border-radius: 3px;
+    font-size: 10px;
+    line-height: 15px;
+    font-weight: 600;
+    letter-spacing: .3px;
+    vertical-align: 1px;
+    white-space: nowrap;
+}
+.tag-hdr {
+    color: #ffb454;
+    background: rgba(255, 180, 84, .16);
+    border: 1px solid rgba(255, 180, 84, .42);
+}
+.tag-done {
+    color: var(--text-dim);
+    background: var(--panel-2);
+    border: 1px solid var(--border-soft);
+}
+
+/* 汇总区提示条：重复压缩提醒与 HDR 风险。
+   只提示不拦截，所以样式上不做成阻断性的红色警告框。 */
+.notice-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+.notice {
+    font-size: 11px;
+    line-height: 1.5;
+    padding: 4px 8px;
+    border-radius: 4px;
+    border: 1px solid transparent;
+}
+.notice.info {
+    color: var(--text-dim);
+    background: var(--panel-2);
+    border-color: var(--border-soft);
+}
+.notice.warn {
+    color: var(--warn);
+    background: rgba(255, 180, 84, .10);
+    border-color: rgba(255, 180, 84, .32);
+}
+
 /* 批量导入时默认只自动采样少量素材；这里明确显示进度和控制入口，
    让用户知道插件在做什么，也能主动扩展/停止后台分析。 */
 .sample-analysis-controls {

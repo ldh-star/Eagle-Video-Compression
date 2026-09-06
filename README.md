@@ -138,6 +138,23 @@ $NODE tests/test_queue_intake.js        # cancellation, queue intake, atomic com
 
 ## Changelog
 
+### 1.0.2
+
+**Added**
+
+- **HDR detection.** Video sources are now probed for HDR and labelled in the task list with an amber badge: `HDR10`, `HLG`, `Dolby Vision`, `HDR10+`, or a generic `HDR` when only BT.2020 colour space plus 10-bit depth is available. Detection is driven by colour transfer characteristics (`smpte2084` for PQ/HDR10, `arib-std-b67` for HLG) and by Dolby Vision / SMPTE 2094-40 side data.
+  - A fallback rule covers HLG files whose container carries no `color_transfer` at all — BT.2020 colour space at 10-bit or deeper is treated as HDR, because otherwise those files were silently missed.
+- **Colour metadata is carried through re-encoding.** HDR sources are re-encoded with `-color_trc`, `-color_primaries`, and `-colorspace`, so the tone-mapping information survives. Without it, an HDR10 source could come out flagged as SDR.
+- **A "compressed by this plugin" marker.** After encoding, a machine-readable tag is written into the output file. The next time that file is loaded, the task list shows it as already compressed, including how many times and on which date. This makes it possible to tell at a glance which sources have already been through a lossy pass.
+  - The marker is recorded as `EagleVideoCompress` metadata. MP4, MOV, and M4V require `-movflags +use_metadata_tags`, because their muxers otherwise drop unrecognised metadata keys silently — the encode exits successfully, the file plays, and the marker is simply gone. MKV and WebM store it natively, but upper-case the key, so lookups are case-insensitive.
+  - **AVI and TS cannot store arbitrary metadata at all.** Rather than pretend otherwise, the plugin writes nothing for those containers and says so in the settings hint.
+  - Marker writing is on by default and can be turned off under **Write an "already compressed" marker after compressing**. When disabled, the plugin does not touch file metadata.
+- **A summary notice for re-compression.** When the current queue contains files that this plugin has already compressed, a notice states how many and warns that compressing again degrades quality further.
+
+**Fixed**
+
+- **HDR sources could be silently destroyed by an H.264 encode.** The H.264 preset has no 10-bit path, so choosing it for an HDR source forces an 8-bit conversion and the HDR information is lost irreversibly, with no visible sign that anything was wrong. This is now surfaced as a warning in the summary notice. The warning does not block the encode or change settings automatically — the choice is left to you.
+
 ### 1.0.1
 
 **Fixed**

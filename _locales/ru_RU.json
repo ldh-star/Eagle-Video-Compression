@@ -89,7 +89,18 @@
     "selectionTitle": "Обнаружено новое выделение Eagle",
     "selectionCancel": "Отменить это действие",
     "selectionReplace": "Отменить все текущие задачи и заменить",
-    "selectionAppend": "Добавить в очередь задач"
+    "selectionAppend": "Добавить в очередь задач",
+    "writeMarker": "Записывать метку «уже сжато» после сжатия",
+    "writeMarkerHint": "При повторном сжатии того же файла будет показано количество раз и дата. Контейнеры вроде AVI / TS не могут хранить эту метку",
+    "hdr_hdr10": "HDR10",
+    "hdr_hlg": "HLG",
+    "hdr_dolbyVision": "Dolby Vision",
+    "hdr_hdr10Plus": "HDR10+",
+    "hdr_hdr": "HDR",
+    "hdrDetected": "Обнаружен HDR-контент ({{detail}})",
+    "compressedTimes": "Сжато {{count}} раз",
+    "compressedOnce": "Уже сжимался",
+    "compressedTitle": "Сжато этим плагином {{date}} в {{codec}}"
   },
   "runtime": {
     "saved": "{{prefix}}сэкономлено {{percent}}% ({{size}})",
@@ -144,6 +155,7 @@
     "selectionDecisionDescription": "В текущем списке {{current}} задач. Обнаружено новых видео Eagle: {{incoming}}. Выберите дальнейшее действие:",
     "selectionMore": "…и ещё {{count}} элементов",
     "replacedWithSelection": "Текущие задачи отменены; загружено новых элементов: {{count}}",
-    "cancellingForReplacement": "Текущие задачи останавливаются, затем будут загружены новые элементы…"
+    "cancellingForReplacement": "Текущие задачи останавливаются, затем будут загружены новые элементы…",
+    "alreadyCompressedCount": "{{count}} из этих файлов уже были сжаты этим плагином; повторное сжатие ещё сильнее ухудшит качество"
   }
 }

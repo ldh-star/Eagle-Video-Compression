@@ -519,6 +519,195 @@
         return 8;
     }
 
+    // ---------------------------------------------------------------------
+    // HDR 识别
+    // ---------------------------------------------------------------------
+    // PQ（SMPTE ST 2084，HDR10 用的传递函数）与 HLG（ARIB STD-B67，广播电视用）
+    // 是两种完全不同的 HDR 方案，标签要分开显示，不能笼统叫「HDR」。
+    var HDR_TRANSFER_KIND = {
+        smpte2084: 'hdr10',
+        'arib-std-b67': 'hlg'
+    };
+
+    // 杜比视界与 HDR10+ 走 side_data，不体现在 color_transfer 上。
+    // 这里只匹配类型名里的关键词，避免受 ffprobe 版本命名差异影响。
+    var DOVI_SIDE_DATA = /DOVI|dolby.?vision/i;
+    var HDR10PLUS_SIDE_DATA = /SMPTE\s*2094-40|HDR10\s*\+/i;
+
+    /**
+     * 判断视频流是不是 HDR。
+     *
+     * 不能只看 color_transfer：本地实测造出来的 HLG 样本里，transfer 压根没写进
+     * 容器，ffprobe 只报得出 color_space=bt2020nc。只认单一字段会整片漏判，
+     * 所以这里按「明确信号优先、BT.2020 + 10-bit 兜底」的顺序判定。
+     *
+     * @param {object} stream ffprobe 的视频流对象
+     * @param {number} bitDepth 已推断出的位深
+     * @returns {{isHdr:boolean, kind:string|null, transfer:string, primaries:string,
+     *            space:string, dolbyVision:boolean, hdr10Plus:boolean}}
+     */
+    function detectHdr(stream, bitDepth) {
+        stream = stream || {};
+        var sideData = stream.side_data_list || [];
+        var transfer = String(stream.color_transfer || '').toLowerCase();
+        var primaries = String(stream.color_primaries || '').toLowerCase();
+        var space = String(stream.color_space || '').toLowerCase();
+
+        var dolbyVision = sideData.some(function (d) {
+            return d && DOVI_SIDE_DATA.test(String(d.side_data_type || ''));
+        });
+        var hdr10Plus = sideData.some(function (d) {
+            return d && HDR10PLUS_SIDE_DATA.test(String(d.side_data_type || ''));
+        });
+
+        var kind = null;
+
+        // 杜比视界优先：它通常同时带 HDR10 的 transfer，但用户更想知道「这是 DV」。
+        if (dolbyVision) kind = 'dolbyVision';
+        else if (HDR_TRANSFER_KIND[transfer]) kind = HDR_TRANSFER_KIND[transfer];
+        else if (hdr10Plus) kind = 'hdr10Plus';
+        // 兜底：颜色矩阵是 BT.2020 且位深 ≥10，即便容器里没写 transfer，
+        // 实际内容几乎必然是 HDR（本地 HLG 样本就是这么暴露的）。
+        else if (space === 'bt2020nc' && bitDepth >= 10) kind = 'hdr';
+
+        return {
+            isHdr: !!kind,
+            kind: kind,
+            transfer: transfer,
+            primaries: primaries,
+            space: space,
+            dolbyVision: dolbyVision,
+            hdr10Plus: hdr10Plus
+        };
+    }
+
+    // ---------------------------------------------------------------------
+    // 「已被本插件压缩过」标记
+    // ---------------------------------------------------------------------
+    var MARKER_KEY = 'EagleVideoCompress';
+    var MARKER_VERSION = 1;
+
+    /**
+     * 哪些容器能存自定义 metadata。
+     *
+     * 这是实测结论，不是推测：
+     *   - MP4 / MOV / M4V 的 muxer 默认会「静默丢弃」不认识的 key —— 退出码 0、
+     *     文件照常生成，标记却不在。必须配合 -movflags +use_metadata_tags 写进 mdta box。
+     *   - MKV / WebM 原生支持任意 tag，但会把 key 大写，读取时得忽略大小写。
+     *   - AVI / TS 没有承载任意 metadata 的地方，写不进去。宁可明确不支持，
+     *     也不要让用户以为标记成功了。
+     */
+    var MARKER_CONTAINERS = {
+        '.mp4': 'movflags',
+        '.mov': 'movflags',
+        '.m4v': 'movflags',
+        '.mkv': 'native',
+        '.webm': 'native'
+    };
+
+    /** 当天日期，YYYY-MM-DD。写进标记里给用户看「什么时候压的」。 */
+    function todayStamp(now) {
+        var d = now || new Date();
+        var pad = function (x) { return (x < 10 ? '0' : '') + x; };
+        return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+    }
+
+    /**
+     * 从容器 tag 里读出压缩标记。
+     *
+     * Matroska 会把 key 转成大写，所以比对必须忽略大小写 —— 否则 MKV 上的
+     * 标记等于白写，插件永远认不出自己压过的文件。
+     *
+     * @returns {{compressed:boolean, version:number, count:number, date:string,
+     *            codec:string, mode:string}}
+     */
+    function parseCompressionMarker(tags) {
+        var empty = { compressed: false, version: 0, count: 0, date: '', codec: '', mode: '' };
+        if (!tags) return empty;
+
+        var value = null;
+        Object.keys(tags).forEach(function (k) {
+            if (value === null && k.toUpperCase() === MARKER_KEY.toUpperCase()) value = tags[k];
+        });
+        if (value === null || value === undefined) return empty;
+
+        var parts = String(value).split(';');
+        // 第一段是 schema 版本。将来格式变了，靠它决定怎么解析，老版本宁可不认。
+        var vm = /^v(\d+)$/.exec(String(parts[0]).trim());
+        if (!vm || parseInt(vm[1], 10) !== MARKER_VERSION) return empty;
+
+        var out = { compressed: true, version: MARKER_VERSION, count: 0, date: '', codec: '', mode: '' };
+        for (var i = 1; i < parts.length; i++) {
+            var eq = parts[i].indexOf('=');
+            if (eq === -1) continue;
+            var key = parts[i].slice(0, eq).trim();
+            var val = parts[i].slice(eq + 1).trim();
+            if (key === 'count') out.count = parseInt(val, 10) || 0;
+            else if (key === 'date') out.date = val;
+            else if (key === 'codec') out.codec = val;
+            else if (key === 'mode') out.mode = val;
+        }
+        return out;
+    }
+
+    /**
+     * 生成要写进容器的标记值。
+     * 已压过的文件次数累加 —— 「压过几次」比「压过没有」有用得多。
+     */
+    function buildCompressionMarker(meta, settings, now) {
+        var prev = (meta && meta.compression) || { count: 0 };
+        return [
+            'v' + MARKER_VERSION,
+            'codec=' + (settings.codec || ''),
+            'mode=' + (settings.mode || ''),
+            'date=' + todayStamp(now),
+            'count=' + ((parseInt(prev.count, 10) || 0) + 1)
+        ].join(';');
+    }
+
+    /**
+     * 压缩标记的写入参数。
+     * 容器不支持时返回空数组，调用方据此如实告诉用户「这个格式写不进标记」。
+     */
+    function markerArgs(ext, meta, settings, now) {
+        if (!settings || settings.writeCompressionMarker === false) return [];
+        var mode = MARKER_CONTAINERS[String(ext).toLowerCase()];
+        if (!mode) return [];
+
+        var args = [];
+        if (mode === 'movflags') args.push('-movflags', '+use_metadata_tags');
+        args.push('-metadata', MARKER_KEY + '=' + buildCompressionMarker(meta, settings, now));
+        return args;
+    }
+
+    /** 该容器能不能存压缩标记。UI 用它决定要不要提示「此格式不支持标记」。 */
+    function supportsCompressionMarker(ext) {
+        return !!MARKER_CONTAINERS[String(ext).toLowerCase()];
+    }
+
+    /**
+     * 当前设置会不会破坏 HDR。
+     *
+     * 关键风险：H.264 在编码表里是 tenBit:false，HDR 源一旦选它就会被强制降到
+     * 8-bit —— HDR 信息直接没了、颜色发灰，而这类损失是不可逆的。
+     * 这里只做判断，不替用户改设置。
+     */
+    function hdrRisk(meta, settings) {
+        var no = { atRisk: false, reason: '' };
+        if (!meta || !meta.video || !meta.video.hdr || !meta.video.hdr.isHdr) return no;
+
+        var codec = CODECS[settings && settings.codec] || CODECS.h264;
+        // 复制视频流不动像素格式，HDR 不受影响。
+        if (codec.id === 'copy') return no;
+        if (codec.tenBit) return no;
+
+        return {
+            atRisk: true,
+            reason: '该文件是 HDR，改用 ' + codec.label.split(' ')[0] +
+                ' 会被降到 8-bit，HDR 信息将丢失且不可逆'
+        };
+    }
+
     function normalizeProbe(raw, filePath, statSize) {
         var format = raw.format || {};
         var streams = raw.streams || [];
@@ -543,10 +732,16 @@
         var videoBitrate = video ? (parseInt(video.bit_rate, 10) || 0) : 0;
         if (!videoBitrate && totalBitrate) videoBitrate = Math.max(0, totalBitrate - audioBitrate);
 
+        var tags = format.tags || {};
+        var bitDepth = video ? bitDepthOf(video) : 0;
+
         return {
             path: filePath,
             duration: duration,
             size: size,
+            // 容器 tag。压缩标记就存在这里，UI 也靠它显示「此文件压过几次」。
+            tags: tags,
+            compression: parseCompressionMarker(tags),
             // ffprobe 对 mp4 常返回 "mov,mp4,m4a,3gp,3g2,mj2"，直接显示会撑爆布局，
             // 取第一段作为容器名即可
             container: (format.format_name || '').split(',')[0] || '',
@@ -561,9 +756,15 @@
                 fps: parseFrameRate(video.avg_frame_rate || video.r_frame_rate),
                 fpsRaw: video.avg_frame_rate || video.r_frame_rate || '',
                 pixFmt: video.pix_fmt || '',
-                bitDepth: bitDepthOf(video),
+                bitDepth: bitDepth,
                 bitrate: videoBitrate,
-                frames: parseInt(video.nb_frames, 10) || 0
+                frames: parseInt(video.nb_frames, 10) || 0,
+                // HDR 判定要拿到完整色彩信息：transfer 决定 PQ/HLG，
+                // side_data 里还有杜比视界和 HDR10+。
+                colorTransfer: video.color_transfer || '',
+                colorPrimaries: video.color_primaries || '',
+                colorSpace: video.color_space || '',
+                hdr: detectHdr(video, bitDepth)
             } : null,
             audio: audio ? {
                 codec: audio.codec_name || '',
@@ -804,6 +1005,31 @@
         return outputIsHevc(codec, meta) ? ['-tag:v', 'hvc1'] : [];
     }
 
+    /**
+     * HDR 色彩元数据的保底参数。
+     *
+     * x265/x264 通常会自动继承输入帧的色彩信息，但那只覆盖「码流里写了」的情况。
+     * 有些文件的 transfer 只存在于容器（本地 HLG 样本就没写进码流），重编码后就
+     * 丢了。这里显式钉住，让「压完还是 HDR」不依赖编码器的心情。
+     *
+     * 选项名必须是 -color_trc / -color_primaries / -colorspace：
+     * -color_transfer / -color_space 在 ffmpeg 里并不存在，实测会直接报
+     * Unrecognized option 让整个任务失败。
+     *
+     * 只在重编码时加。复制视频流加这些参数没有意义，还可能触发 streamcopy 冲突。
+     */
+    function hdrPreservationArgs(meta, codec) {
+        var hdr = meta && meta.video && meta.video.hdr;
+        if (!hdr || !hdr.isHdr) return [];
+        if (!codec || codec.id === 'copy') return [];
+
+        var args = [];
+        if (hdr.transfer) args.push('-color_trc', hdr.transfer);
+        if (hdr.primaries) args.push('-color_primaries', hdr.primaries);
+        if (hdr.space) args.push('-colorspace', hdr.space);
+        return args;
+    }
+
     function buildPlan(meta, settings, outputPath, passLogPrefix) {
         var codec = CODECS[settings.codec] || CODECS.h264;
         var ext = path.extname(meta.path).toLowerCase();
@@ -848,6 +1074,9 @@
         // ---- 容器兼容性 ----
         args = args.concat(containerCompatibilityArgs(ext, codec, meta));
 
+        // ---- HDR 色彩元数据 ----
+        args = args.concat(hdrPreservationArgs(meta, codec));
+
         // ---- 两遍编码 ----
         var passes;
         if (settings.mode === 'target' && codec.twoPass && codec.id !== 'copy') {
@@ -857,12 +1086,13 @@
             var pass1 = args.slice();
             pass1.push('-pass', '1', '-passlogfile', passLogPrefix, '-an', '-f', 'mp4', nullOut);
 
-            var pass2 = args.slice();
+            // 压缩标记只写进最终产物。第一遍输出到 /dev/null，挂上去纯属浪费。
+            var pass2 = args.slice().concat(markerArgs(ext, meta, settings));
             pass2.push('-pass', '2', '-passlogfile', passLogPrefix, outputPath);
 
             passes = [pass1, pass2];
         } else {
-            passes = [args.concat([outputPath])];
+            passes = [args.concat(markerArgs(ext, meta, settings), [outputPath])];
         }
 
         return {
@@ -1214,6 +1444,12 @@
         isVideoFile: isVideoFile,
         resolveAudioEncoder: resolveAudioEncoder,
 
+        // UI 需要的判断：HDR 破坏风险和容器能否存标记
+        hdrRisk: hdrRisk,
+        supportsCompressionMarker: supportsCompressionMarker,
+        detectHdr: detectHdr,
+        parseCompressionMarker: parseCompressionMarker,
+
         // 以下为纯函数，便于单测
         _internal: {
             parseFrameRate: parseFrameRate,
@@ -1221,6 +1457,10 @@
             normalizeProbe: normalizeProbe,
             resolveTargetHeight: resolveTargetHeight,
             sampleWindows: sampleWindows,
+            buildCompressionMarker: buildCompressionMarker,
+            markerArgs: markerArgs,
+            hdrPreservationArgs: hdrPreservationArgs,
+            MARKER_KEY: MARKER_KEY,
             tailText: tailText,
             preferredTempDir: preferredTempDir,
             recommendedWorkerCount: recommendedWorkerCount,

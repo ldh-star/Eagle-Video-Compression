@@ -89,7 +89,18 @@
     "selectionTitle": "新しい Eagle 選択を検出しました",
     "selectionCancel": "今回の操作をキャンセル",
     "selectionReplace": "現在の全タスクをキャンセルして置き換え",
-    "selectionAppend": "タスクキューに追加"
+    "selectionAppend": "タスクキューに追加",
+    "writeMarker": "圧縮後に「圧縮済み」マーカーを書き込む",
+    "writeMarkerHint": "同じファイルを再圧縮する際、回数と日付を一覧に表示します。AVI / TS などのコンテナには保存できません",
+    "hdr_hdr10": "HDR10",
+    "hdr_hlg": "HLG",
+    "hdr_dolbyVision": "ドルビービジョン",
+    "hdr_hdr10Plus": "HDR10+",
+    "hdr_hdr": "HDR",
+    "hdrDetected": "HDR コンテンツを検出しました（{{detail}}）",
+    "compressedTimes": "{{count}} 回圧縮済み",
+    "compressedOnce": "圧縮済み",
+    "compressedTitle": "本プラグインが {{date}} に {{codec}} で圧縮しました"
   },
   "runtime": {
     "saved": "{{prefix}}{{percent}}% 削減（{{size}}）",
@@ -144,6 +155,7 @@
     "selectionDecisionDescription": "現在のリストには {{current}} 件のタスクがあります。新しい Eagle 動画素材を {{incoming}} 件検出しました。処理方法を選択してください:",
     "selectionMore": "…ほか {{count}} 件の素材",
     "replacedWithSelection": "現在のタスクをキャンセルし、{{count}} 件の新しい素材を読み込みました",
-    "cancellingForReplacement": "現在のタスクを停止してから、新しい素材を読み込みます…"
+    "cancellingForReplacement": "現在のタスクを停止してから、新しい素材を読み込みます…",
+    "alreadyCompressedCount": "うち {{count}} 件は本プラグインで圧縮済みです。再圧縮すると画質がさらに劣化します"
   }
 }

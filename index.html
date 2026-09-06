@@ -55,6 +55,10 @@
                 <button type="button" class="link-btn" id="btnStopAnalysis" data-i18n="ui.stopAnalysis" disabled>停止分析</button>
             </div>
 
+            <!-- 「曾经压过」与 HDR 风险的汇总提示。
+                 两者都只是提示，不拦截操作 —— 决定权始终在用户手里。 -->
+            <div class="notice-row" id="noticeRow" hidden></div>
+
             <div class="actionbar-spacer"></div>
 
             <div class="actions" data-page-node-id="v9ibVznQUo6M7caY6U4WnJ">
@@ -180,6 +184,14 @@
                         <input type="checkbox" id="chkReplaceInEagle" checked data-page-node-id="dGAPYM3vfhzPEJaFb8MwFQ">
                         <span data-page-node-id="KUohD3b9gKDWbG4b8VXcZQ">完成后同步回 Eagle 素材（替换原素材并刷新缩略图）</span>
                     </label>
+                </div>
+
+                <div class="check-row">
+                    <label class="check">
+                        <input type="checkbox" id="chkWriteMarker" checked>
+                        <span data-i18n="ui.writeMarker">压缩后写入「已压缩」标记</span>
+                    </label>
+                    <span class="hint" data-i18n="ui.writeMarkerHint">下次再压缩同一文件时，列表里会显示压缩次数和日期。AVI / TS 等容器存不下此标记</span>
                 </div>
 
                 <div class="field inline" data-page-node-id="UMgj3cdQaAUKAaeumResTF">

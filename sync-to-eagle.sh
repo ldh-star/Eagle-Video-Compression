@@ -17,10 +17,12 @@ echo "目标  : $DST"
 # 先自查语法，别把跑不起来的东西推进 Eagle
 echo ""
 echo "语法检查..."
+JS_COUNT=0
 for f in "$SRC"/js/*.js; do
     node --check "$f" || { echo "*** 语法错误: $f —— 已中止同步"; exit 1; }
+    JS_COUNT=$((JS_COUNT + 1))
 done
-echo "  6 个 JS 文件全部通过"
+echo "  $JS_COUNT 个 JS 文件全部通过"
 
 mkdir -p "$DST"
 rsync -a --delete \
@@ -35,7 +37,9 @@ find "$DST" -type f -not -name '.DS_Store' | sed "s|$DST/||" | sort | while read
     printf "  %-22s %8s bytes\n" "$f" "$(stat -f%z "$DST/$f")"
 done
 
-if diff -r --exclude='.DS_Store' --exclude='sync-to-eagle.sh' "$SRC" "$DST" >/dev/null 2>&1; then
+# 注意：排除项必须和上面 rsync 的 --exclude 保持一致，
+# 否则 .git 这类"故意不同步"的目录会让校验永远失败。
+if diff -r --exclude='.DS_Store' --exclude='.git' --exclude='sync-to-eagle.sh' "$SRC" "$DST" >/dev/null 2>&1; then
     echo ""
     echo "校验: 与源目录完全一致 ✓"
 else

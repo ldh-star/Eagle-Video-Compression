@@ -89,7 +89,18 @@
     "selectionTitle": "Neue Eagle-Auswahl erkannt",
     "selectionCancel": "Diesen Vorgang abbrechen",
     "selectionReplace": "Alle aktuellen Aufgaben abbrechen und ersetzen",
-    "selectionAppend": "Zur Aufgabenliste hinzufügen"
+    "selectionAppend": "Zur Aufgabenliste hinzufügen",
+    "writeMarker": "Nach der Komprimierung eine „bereits komprimiert\"-Markierung schreiben",
+    "writeMarkerHint": "Beim späteren erneuten Komprimieren werden Anzahl und Datum angezeigt. Container wie AVI / TS können diese Markierung nicht speichern",
+    "hdr_hdr10": "HDR10",
+    "hdr_hlg": "HLG",
+    "hdr_dolbyVision": "Dolby Vision",
+    "hdr_hdr10Plus": "HDR10+",
+    "hdr_hdr": "HDR",
+    "hdrDetected": "HDR-Inhalt erkannt ({{detail}})",
+    "compressedTimes": "{{count}}× komprimiert",
+    "compressedOnce": "Bereits komprimiert",
+    "compressedTitle": "Am {{date}} mit {{codec}} von diesem Plugin komprimiert"
   },
   "runtime": {
     "saved": "{{prefix}}{{percent}} % gespart ({{size}})",
@@ -144,6 +155,7 @@
     "selectionDecisionDescription": "Die aktuelle Liste enthält {{current}} Aufgaben. {{incoming}} neue Eagle-Videos wurden erkannt. Wie möchten Sie fortfahren?",
     "selectionMore": "…und {{count}} weitere Elemente",
     "replacedWithSelection": "Aktuelle Aufgaben abgebrochen; {{count}} neue Elemente geladen",
-    "cancellingForReplacement": "Aktuelle Aufgaben werden angehalten, danach werden neue Elemente geladen…"
+    "cancellingForReplacement": "Aktuelle Aufgaben werden angehalten, danach werden neue Elemente geladen…",
+    "alreadyCompressedCount": "{{count}} dieser Dateien wurden bereits mit diesem Plugin komprimiert; erneutes Komprimieren verschlechtert die Qualität weiter"
   }
 }

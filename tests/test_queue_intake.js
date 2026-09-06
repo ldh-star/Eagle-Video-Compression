@@ -22,9 +22,26 @@ function makeCore() {
         AUDIO_BITRATES: [128],
         VIDEO_EXTENSIONS: ['.mp4'],
         isVideoFile: (p) => /\.mp4$/i.test(p),
-        probe: () => Promise.resolve({ size: 1024, duration: 1, video: { width: 320, height: 240, fps: 30, codec: 'h264', bitDepth: 8 } }),
+        // 结构与真实 normalizeProbe 保持一致：缺了 hdr / compression，
+        // 渲染层就得靠防御性判断兜底，那正是测试该盯住的地方。
+        // 路径里带 hdr / compressed 的文件会返回对应的元数据，用于验证色块渲染。
+        probe: (bins, p) => Promise.resolve({
+            size: 1024, duration: 1, path: p,
+            tags: {},
+            compression: /compressed/.test(p || '')
+                ? { compressed: true, version: 1, count: 3, date: '2026-09-06', codec: 'h265', mode: 'crf' }
+                : { compressed: false, version: 0, count: 0, date: '', codec: '', mode: '' },
+            video: {
+                width: 320, height: 240, fps: 30, codec: 'h264', bitDepth: 8,
+                hdr: /hdr/.test(p || '')
+                    ? { isHdr: true, kind: 'hdr10', transfer: 'smpte2084', primaries: 'bt2020', space: 'bt2020nc', dolbyVision: false, hdr10Plus: false }
+                    : { isHdr: false, kind: null, transfer: '', primaries: '', space: '', dolbyVision: false, hdr10Plus: false }
+            }
+        }),
         estimateOutputSize: () => 512,
         purgeStaleTemp: () => 0,
+        hdrRisk: () => ({ atRisk: false, reason: '' }),
+        supportsCompressionMarker: () => true,
         CancelledError: () => Object.assign(new Error('Cancelled'), { cancelled: true }),
         resolveBinaries: () => Promise.resolve({ version: 'test', ffmpeg: 'ffmpeg', source: 'test' }),
         _internal: {
@@ -54,7 +71,16 @@ function wait(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
             window.require = require;
             window.FFmpegCore = makeCore();
             window.Format = makeFormat();
-            window.I18n = { t: (_, fallback) => fallback, apply: () => {} };
+            // 必须和真实 I18n.t 一样做 {{...}} 插值：否则含 {{count}} 的提示文案
+            // 永远渲染成占位符，测试就盯不住“数字到底有没有传进去”这类 bug。
+            window.I18n = {
+                t: (_, fallback, vars) => {
+                    if (!vars) return fallback;
+                    return String(fallback).replace(/{{\s*([\w.]+)\s*}}/g, (m, name) =>
+                        vars[name] === undefined || vars[name] === null ? '' : String(vars[name]));
+                },
+                apply: () => {}
+            };
             window.eagle = { item: { getSelected: () => Promise.resolve(selected) } };
         }
     });
@@ -149,7 +175,51 @@ function wait(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
         'Expected final output to replace the original through the atomic commit helper');
     assert(!fs.readdirSync(settingsDir).some((name) => name.indexOf('.eagle-vc-commit-') === 0),
         'Expected no commit staging file to remain after replacement');
+    // ---- HDR / 已压缩 色块必须真的渲染出来，而不只是数据里存在 ----
+    win.App._state.tasks.length = 0;
+    win.App._state.running = false;
+
+    const badgePaths = [
+        '/tmp/hdr-source.mp4',
+        '/tmp/compressed-before.mp4',
+        '/tmp/hdr-and-compressed.mp4'
+    ];
+    for (let i = 0; i < badgePaths.length; i++) {
+        const p = badgePaths[i];
+        // 直接喂 probe 结果，避开异步探测链，断言只盯渲染这一件事。
+        const meta = await win.FFmpegCore.probe(null, p);
+        win.App._state.tasks.push({
+            id: 'badge-' + i, path: p, name: p.split('/').pop(), ext: '.mp4',
+            meta: meta, status: 'queued', progress: 0
+        });
+    }
+    win.App._internal.renderList();
+    await wait(30);
+    win.App._internal.renderSummary();
+    await wait(20);
+
+    const rows = [...win.document.querySelectorAll('.task-meta')].map((el) => el.innerHTML);
+    assert.strictEqual(rows.length, 3, 'Expected three task rows to render');
+    assert(
+        rows.some((h) => h.includes('tag-hdr') && h.includes('HDR10')),
+        'An HDR source must render the HDR badge, not just carry the flag in metadata'
+    );
+    assert(
+        rows.some((h) => h.includes('tag-done')),
+        'A previously compressed file must render the compressed badge'
+    );
+    const both = rows.find((h) => h.includes('tag-hdr') && h.includes('tag-done'));
+    assert(both, 'A file that is both HDR and previously compressed must show both badges');
+
+    const notice = win.document.getElementById('noticeRow');
+    assert.strictEqual(notice.hidden, false, 'Expected the summary notice row to be visible');
+    assert(
+        notice.textContent.includes('2'),
+        'Expected the notice to count the two previously compressed files'
+    );
+
     console.log('PASS queue intake decision actions and visible cancellation control');
+    console.log('PASS HDR and compression badges render in the task list');
 })().catch((err) => {
     console.error(err.stack || err);
     process.exitCode = 1;

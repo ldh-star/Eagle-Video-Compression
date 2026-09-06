@@ -89,7 +89,18 @@
     "selectionTitle": "새 Eagle 선택 항목 감지",
     "selectionCancel": "이번 작업 취소",
     "selectionReplace": "현재 작업 모두 취소 후 교체",
-    "selectionAppend": "작업 대기열에 추가"
+    "selectionAppend": "작업 대기열에 추가",
+    "writeMarker": "압축 후 \"압축됨\" 표시 기록",
+    "writeMarkerHint": "나중에 같은 파일을 다시 압축하면 횟수와 날짜가 표시됩니다. AVI / TS 등 일부 컨테이너는 이 표시를 저장할 수 없습니다",
+    "hdr_hdr10": "HDR10",
+    "hdr_hlg": "HLG",
+    "hdr_dolbyVision": "돌비 비전",
+    "hdr_hdr10Plus": "HDR10+",
+    "hdr_hdr": "HDR",
+    "hdrDetected": "HDR 콘텐츠 감지됨 ({{detail}})",
+    "compressedTimes": "{{count}}회 압축됨",
+    "compressedOnce": "압축된 적 있음",
+    "compressedTitle": "{{date}}에 {{codec}}(으)로 본 플러그인이 압축했습니다"
   },
   "runtime": {
     "saved": "{{prefix}}{{percent}}% 절약됨({{size}})",
@@ -144,6 +155,7 @@
     "selectionDecisionDescription": "현재 목록에 작업 {{current}}개가 있고, 새 Eagle 동영상 {{incoming}}개가 감지되었습니다. 처리 방법을 선택하세요:",
     "selectionMore": "…외 {{count}}개 항목",
     "replacedWithSelection": "현재 작업을 취소하고 새 항목 {{count}}개를 불러왔습니다",
-    "cancellingForReplacement": "현재 작업을 중지한 뒤 새 항목을 불러옵니다…"
+    "cancellingForReplacement": "현재 작업을 중지한 뒤 새 항목을 불러옵니다…",
+    "alreadyCompressedCount": "이 중 {{count}}개는 이미 본 플러그인으로 압축된 파일입니다. 다시 압축하면 화질이 더 저하됩니다"
   }
 }

@@ -89,7 +89,18 @@
     "selectionTitle": "New Eagle selection detected",
     "selectionCancel": "Cancel this action",
     "selectionReplace": "Cancel all current tasks and replace",
-    "selectionAppend": "Add to task queue"
+    "selectionAppend": "Add to task queue",
+    "writeMarker": "Write an \"already compressed\" marker",
+    "writeMarkerHint": "Re-compressing the same file later will show how many times and when. AVI / TS and similar containers cannot store this marker",
+    "hdr_hdr10": "HDR10",
+    "hdr_hlg": "HLG",
+    "hdr_dolbyVision": "Dolby Vision",
+    "hdr_hdr10Plus": "HDR10+",
+    "hdr_hdr": "HDR",
+    "hdrDetected": "HDR content detected ({{detail}})",
+    "compressedTimes": "Compressed {{count}} times",
+    "compressedOnce": "Compressed before",
+    "compressedTitle": "Compressed by this plugin on {{date}} using {{codec}}"
   },
   "runtime": {
     "saved": "{{prefix}}saved {{percent}}% ({{size}})",
@@ -144,6 +155,7 @@
     "selectionDecisionDescription": "The current list has {{current}} task(s). {{incoming}} new Eagle video item(s) were detected. Choose how to continue:",
     "selectionMore": "…and {{count}} more item(s)",
     "replacedWithSelection": "Current tasks cancelled; loaded {{count}} new item(s)",
-    "cancellingForReplacement": "Stopping current tasks, then loading the new items…"
+    "cancellingForReplacement": "Stopping current tasks, then loading the new items…",
+    "alreadyCompressedCount": "{{count}} of these files were already compressed by this plugin; compressing again will degrade quality further"
   }
 }

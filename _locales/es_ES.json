@@ -89,7 +89,18 @@
     "selectionTitle": "Se detectó una nueva selección de Eagle",
     "selectionCancel": "Cancelar esta acción",
     "selectionReplace": "Cancelar todas las tareas actuales y reemplazar",
-    "selectionAppend": "Añadir a la cola de tareas"
+    "selectionAppend": "Añadir a la cola de tareas",
+    "writeMarker": "Escribir una marca de «ya comprimido» tras comprimir",
+    "writeMarkerHint": "Al volver a comprimir el mismo archivo se mostrarán el número de veces y la fecha. Contenedores como AVI / TS no pueden guardar esta marca",
+    "hdr_hdr10": "HDR10",
+    "hdr_hlg": "HLG",
+    "hdr_dolbyVision": "Dolby Vision",
+    "hdr_hdr10Plus": "HDR10+",
+    "hdr_hdr": "HDR",
+    "hdrDetected": "Contenido HDR detectado ({{detail}})",
+    "compressedTimes": "Comprimido {{count}} veces",
+    "compressedOnce": "Ya comprimido",
+    "compressedTitle": "Comprimido por este complemento el {{date}} con {{codec}}"
   },
   "runtime": {
     "saved": "{{prefix}}ahorro de {{percent}}% ({{size}})",
@@ -144,6 +155,7 @@
     "selectionDecisionDescription": "La lista actual contiene {{current}} tareas. Se detectaron {{incoming}} vídeos nuevos de Eagle. Elige cómo continuar:",
     "selectionMore": "…y {{count}} elementos más",
     "replacedWithSelection": "Se cancelaron las tareas actuales y se cargaron {{count}} elementos nuevos",
-    "cancellingForReplacement": "Deteniendo las tareas actuales y cargando después los nuevos elementos…"
+    "cancellingForReplacement": "Deteniendo las tareas actuales y cargando después los nuevos elementos…",
+    "alreadyCompressedCount": "{{count}} de estos archivos ya fueron comprimidos por este complemento; volver a comprimirlos degradará más la calidad"
   }
 }

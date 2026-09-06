@@ -171,6 +171,11 @@
             replaceInEagle: true,
             concurrency: 2,
 
+            // 压缩后往文件里写一条「本插件压过」的标记，下次再打开就能认出来。
+            // 默认开：这是用户要的核心能力。关掉的话插件完全不碰文件元数据。
+            // 注意 AVI / TS 这类容器存不了自定义 metadata，写了也存不进去。
+            writeCompressionMarker: true,
+
             // 界面主题：auto 跟随 Eagle，light / dark 强制
             themeMode: 'auto'
         };
@@ -414,6 +419,7 @@
         s.targetSizeMB = parseFloat(dom.inpTargetSize.value) || 50;
         s.backup = dom.chkBackup.checked;
         s.replaceInEagle = dom.chkReplaceInEagle.checked;
+        s.writeCompressionMarker = dom.chkWriteMarker.checked;
         s.concurrency = parseInt(dom.selConcurrency.value, 10);
         return s;
     }
@@ -528,6 +534,7 @@
         dom.inpTargetSize.value = String(s.targetSizeMB);
         dom.chkBackup.checked = s.backup;
         dom.chkReplaceInEagle.checked = s.replaceInEagle;
+        dom.chkWriteMarker.checked = s.writeCompressionMarker !== false;
 
         // 压缩方式
         document.querySelectorAll('#modeTabs button').forEach(function (b) {
@@ -810,6 +817,55 @@
     }
 
     /**
+     * HDR 色块文字。
+     *
+     * 五种结果分开显示是有意义的：HDR10（PQ）和 HLG 是两套完全不同的传递函数，
+     * 杜比视界和 HDR10+ 还有各自的动态元数据，笼统写一个「HDR」会丢失关键信息。
+     * 最后那个通用 'hdr' 是兜底 —— 容器里没写 transfer、只靠 BT.2020 + 10-bit
+     * 认出来的情况，本地 HLG 样本正是这样。
+     */
+    function hdrBadgeText(hdr) {
+        if (!hdr || !hdr.isHdr) return '';
+        var fallbacks = {
+            hdr10: 'HDR10',
+            hlg: 'HLG',
+            dolbyVision: '杜比视界',
+            hdr10Plus: 'HDR10+',
+            hdr: 'HDR'
+        };
+        return tr('ui.hdr_' + hdr.kind, fallbacks[hdr.kind] || 'HDR');
+    }
+
+    /** HDR 色块的悬浮说明，把判定依据摊开给看得懂的人。 */
+    function hdrBadgeTitle(hdr) {
+        if (!hdr || !hdr.isHdr) return '';
+        var bits = [];
+        if (hdr.transfer) bits.push('transfer=' + hdr.transfer);
+        if (hdr.primaries) bits.push('primaries=' + hdr.primaries);
+        if (hdr.space) bits.push('space=' + hdr.space);
+        if (hdr.dolbyVision) bits.push('Dolby Vision');
+        if (hdr.hdr10Plus) bits.push('HDR10+');
+        return tr('ui.hdrDetected', '检测到 HDR 内容（{{detail}}）', {
+            detail: bits.length ? bits.join(', ') : 'BT.2020 + 10-bit'
+        });
+    }
+
+    /**
+     * 当前设置会不会毁掉某个文件的 HDR。
+     * 返回第一条命中的原因；没有风险就返回空字符串。
+     */
+    function hdrRiskReason(tasks) {
+        if (!tasks || !tasks.length) return '';
+        for (var i = 0; i < tasks.length; i++) {
+            var t = tasks[i];
+            if (!t.meta) continue;
+            var risk = Core.hdrRisk(t.meta, state.settings);
+            if (risk.atRisk) return risk.reason;
+        }
+        return '';
+    }
+
+    /**
      * 根据体积关系生成统一文案。relation 来自 Format：
      * smaller = 绿色「省」，larger = 红色「增」，same = 普通颜色「基本不变」。
      * 这里不能再用 pct >= 0 直接二分，否则 0.0% 会被错误地渲染成绿色。
@@ -889,6 +945,14 @@
             pushItem(F.fps(v.fps));
             pushItem(F.codecName(v.codec));
 
+            // HDR 直接以色块显示。这是「会不会压坏」的关键信息，
+            // 混在一堆灰字里等于没有。
+            var hdrLabel = hdrBadgeText(v.hdr);
+            if (hdrLabel) {
+                items.push('<span class="tag tag-hdr" title="' +
+                    escapeHtml(hdrBadgeTitle(v.hdr)) + '">' + escapeHtml(hdrLabel) + '</span>');
+            }
+
             // ffprobe 原始字段名 yuv420p10le 摆在这里没人看得懂，
             // 换成「10-bit 色深（渐变更细腻）」这类说法
             var cd = F.colorDepth(v.pixFmt, v.bitDepth);
@@ -897,6 +961,18 @@
             if (ch) pushItem(ch, v.pixFmt);
 
             pushItem(F.bitrate(v.bitrate));
+
+            // 「以前压过」标记。读的是容器里的 metadata，不是猜的。
+            if (t.meta.compression && t.meta.compression.compressed) {
+                var c = t.meta.compression;
+                var label = c.count > 1
+                    ? tr('ui.compressedTimes', '已压缩 {{count}} 次', { count: c.count })
+                    : tr('ui.compressedOnce', '已压缩过');
+                items.push('<span class="tag tag-done" title="' +
+                    escapeHtml(tr('ui.compressedTitle', '本插件于 {{date}} 用 {{codec}} 压缩过', {
+                        date: c.date || '—', codec: F.codecName(c.codec)
+                    })) + '">' + escapeHtml(label) + '</span>');
+            }
 
             // 指定码率 / 目标大小可直接按码率换算；CRF 则必须采样实际编码。
             // CRF 没有采样结果之前宁可显示“分析中”，不能拿随便一个经验公式冒充准确预估。
@@ -973,6 +1049,43 @@
         });
         if (!done.length || orig === 0) return '—';
         return spaceChangeText(orig, final, F.sizeRelation(orig, final), false);
+    }
+
+    /**
+     * 汇总区的提示条：重复压缩提醒 + HDR 破坏风险。
+     *
+     * 两者都只提示、不拦截。用户可能就是想二次压、就是要用 H.264 换兼容性，
+     * 插件不该替他做决定 —— 但它有责任把「这一步不可逆」说在前面。
+     */
+    function renderNotices(tasks) {
+        var notices = [];
+
+        var recompressed = (tasks || []).filter(function (t) {
+            return t.meta && t.meta.compression && t.meta.compression.compressed;
+        });
+        if (recompressed.length) {
+            notices.push({
+                level: 'info',
+                text: tr('runtime.alreadyCompressedCount',
+                    '其中 {{count}} 个文件此前已被本插件压缩过，再次压缩会继续损失画质', {
+                        count: recompressed.length
+                    })
+            });
+        }
+
+        var risk = hdrRiskReason(tasks);
+        if (risk) notices.push({ level: 'warn', text: risk });
+
+        if (!notices.length) {
+            dom.noticeRow.hidden = true;
+            dom.noticeRow.textContent = '';
+            return;
+        }
+
+        dom.noticeRow.hidden = false;
+        dom.noticeRow.innerHTML = notices.map(function (n) {
+            return '<div class="notice ' + n.level + '">' + escapeHtml(n.text) + '</div>';
+        }).join('');
     }
 
     function renderSummary() {
@@ -1060,6 +1173,8 @@
             dom.estimateNote.hidden = true;
             dom.estimateNote.textContent = '';
         }
+
+        renderNotices(pending.length ? pending : state.tasks);
 
         // 列表统计
         var ready = state.tasks.filter(function (t) { return t.meta && t.status !== 'error'; });
@@ -1846,6 +1961,7 @@
             saveSettings();
         });
         dom.chkReplaceInEagle.addEventListener('change', saveSettings);
+        dom.chkWriteMarker.addEventListener('change', saveSettings);
 
         // 拖放添加文件
         window.addEventListener('dragover', function (e) { e.preventDefault(); });
@@ -2097,6 +2213,7 @@
             chkBackup: $('chkBackup'),
             backupCheck: $('backupCheck'),
             chkReplaceInEagle: $('chkReplaceInEagle'),
+            chkWriteMarker: $('chkWriteMarker'),
             btnPickBackup: $('btnPickBackup'),
             backupPath: $('backupPath'),
             btnAddFiles: $('btnAddFiles'),
@@ -2122,6 +2239,7 @@
             confirmList: $('confirmList'),
             btnConfirmOk: $('btnConfirmOk'),
             btnConfirmCancel: $('btnConfirmCancel'),
+            noticeRow: $('noticeRow'),
             selectionMask: $('selectionMask'),
             selectionDescription: $('selectionDescription'),
             selectionList: $('selectionList'),
@@ -2310,6 +2428,7 @@
         // 仅供本地回归调用：验证汇总/单任务的展示状态，不绕开实际业务逻辑。
         _internal: {
             renderSummary: renderSummary,
+            renderList: renderList,
             renderTask: renderTask,
             sampleCacheKey: sampleCacheKey,
             scheduleSamplingEstimates: scheduleSamplingEstimates,
