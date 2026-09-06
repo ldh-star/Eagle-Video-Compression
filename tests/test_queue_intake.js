@@ -2,7 +2,7 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { JSDOM } = require('/Users/hongliang/.workbuddy/binaries/node/workspace/node_modules/jsdom');
+const { JSDOM } = require(path.join(__dirname, '..', 'tools', 'require-jsdom.js'))();
 
 const ROOT = path.resolve(__dirname, '..');
 const settingsDir = fs.mkdtempSync(path.join(os.tmpdir(), 'eagle-vc-queue-test-'));

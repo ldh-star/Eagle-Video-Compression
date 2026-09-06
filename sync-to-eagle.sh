@@ -25,11 +25,33 @@ done
 echo "  $JS_COUNT 个 JS 文件全部通过"
 
 mkdir -p "$DST"
-rsync -a --delete \
-    --exclude '.DS_Store' \
-    --exclude '.git' \
-    --exclude 'sync-to-eagle.sh' \
-    "$SRC/" "$DST/"
+
+# 排除项只在这里写一份：rsync 和后面的 diff 校验共用。
+# 之前两处各写各的，diff 少排除了 .git，校验永远报不一致 —— 同一份列表能
+# 从根本上杜绝这类漂移。
+#
+# tests / tools / docs 是开发期产物：Eagle 打包 .eagleplugin 时会把整个插件
+# 目录打进去，同步进来的东西就是将来会进包的东西，所以这里就得挡住。
+EXCLUDES=(
+    '.DS_Store'
+    '.git'
+    '.gitignore'
+    '.idea'
+    'sync-to-eagle.sh'
+    'tests'
+    'tools'
+    'docs'
+    '.codebuddy'
+)
+
+RSYNC_ARGS=()
+DIFF_ARGS=()
+for e in "${EXCLUDES[@]}"; do
+    RSYNC_ARGS+=(--exclude "$e")
+    DIFF_ARGS+=(--exclude="$e")
+done
+
+rsync -a --delete "${RSYNC_ARGS[@]}" "$SRC/" "$DST/"
 
 echo ""
 echo "已同步，安装内容:"
@@ -37,9 +59,7 @@ find "$DST" -type f -not -name '.DS_Store' | sed "s|$DST/||" | sort | while read
     printf "  %-22s %8s bytes\n" "$f" "$(stat -f%z "$DST/$f")"
 done
 
-# 注意：排除项必须和上面 rsync 的 --exclude 保持一致，
-# 否则 .git 这类"故意不同步"的目录会让校验永远失败。
-if diff -r --exclude='.DS_Store' --exclude='.git' --exclude='sync-to-eagle.sh' "$SRC" "$DST" >/dev/null 2>&1; then
+if diff -r "${DIFF_ARGS[@]}" "$SRC" "$DST" >/dev/null 2>&1; then
     echo ""
     echo "校验: 与源目录完全一致 ✓"
 else
