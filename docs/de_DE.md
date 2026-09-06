@@ -47,6 +47,14 @@ Ein lokales Plugin für die Stapelkomprimierung von Videos in Eagle. Es lädt di
 <!-- section:changelog -->
 ## Versionsverlauf
 
+### 1.1.0
+
+- GPU-Hardware-Encoding hinzugefügt: NVIDIA NVENC, Intel QSV und AMD AMF werden unterstützt. Die neue Auswahl „Hardwarebeschleunigung" bietet automatisch, GPU erzwingen oder nur CPU (Standard: automatisch, mit Anzeige der erkannten GPU).
+- Umrechnung der Qualitätsskala korrigiert: CRF und Hardware-QP sind unterschiedliche Skalen, daher wird jetzt auf `-rc constqp -qp` umgerechnet (+2 bei H.264/HEVC, ×3.2 bei AV1). Zuvor wich die Dateigröße um 45 % bis +340 % ab.
+- Fehlgeschlagene Hardware-Kodierung wird einmal auf der CPU wiederholt. VP9 hat keine Hardware-Implementierung und läuft immer auf der CPU.
+- Bei Hardware-Kodierung ist die Parallelität auf 2 begrenzt; die Größenschätzung vor der Komprimierung berücksichtigt den gewählten Encoder.
+- Im Test mit 1080p30-Material sank H.265 von etwa 28 Sekunden bei rund 10 Kernen auf etwa 3 Sekunden bei unter einem Kern, PSNR-Differenz unter 0,12 dB.
+
 ### 1.0.2
 
 - HDR-Erkennung hinzugefügt, mit einem bernsteinfarbenen Abzeichen für HDR10 / HLG / Dolby Vision / HDR10+ in der Aufgabenliste.

@@ -40,6 +40,11 @@
     // twoPass     「目标文件大小」模式下是否走真两遍编码。SVT-AV1 / VP9 的单遍码率控制已足够准，
     //             且两遍耗时翻倍，故走单遍。
     // speeds      编码速度档位，索引 0 = 最快，4 = 最慢（压缩率最高）。
+    // hw          各硬件家族对应的编码器。列表里没有的家族说明该编码没有硬件实现，
+    //             例如 VP9 只有 Intel QSV 一家，NVIDIA / AMD 都不提供 VP9 硬编。
+    //
+    // hwQpScale   CRF → 硬件恒定 QP 的换算。见 crfToHwQp() 里的实测说明：
+    //             不同编码的 QP 刻度差得很远，混用会让产物体积失控。
     var CODECS = {
         h264: {
             id: 'h264',
@@ -51,7 +56,13 @@
             twoPass: true,
             tenBit: false,
             speeds: ['veryfast', 'fast', 'medium', 'slow', 'veryslow'],
-            speedArgs: function (v) { return ['-preset', v]; }
+            speedArgs: function (v) { return ['-preset', v]; },
+            hwQpScale: { mul: 1, add: 2, max: 51 },
+            hw: {
+                nvenc: { encoder: 'h264_nvenc', tenBit: false },
+                qsv: { encoder: 'h264_qsv', tenBit: false },
+                amf: { encoder: 'h264_amf', tenBit: false }
+            }
         },
         h265: {
             id: 'h265',
@@ -63,7 +74,13 @@
             twoPass: true,
             tenBit: true,
             speeds: ['veryfast', 'fast', 'medium', 'slow', 'veryslow'],
-            speedArgs: function (v) { return ['-preset', v]; }
+            speedArgs: function (v) { return ['-preset', v]; },
+            hwQpScale: { mul: 1, add: 2, max: 51 },
+            hw: {
+                nvenc: { encoder: 'hevc_nvenc', tenBit: true, tenBitPixFmt: 'p010le' },
+                qsv: { encoder: 'hevc_qsv', tenBit: true, tenBitPixFmt: 'p010le' },
+                amf: { encoder: 'hevc_amf', tenBit: true, tenBitPixFmt: 'p010le' }
+            }
         },
         av1: {
             id: 'av1',
@@ -75,7 +92,13 @@
             twoPass: false,
             tenBit: true,
             speeds: ['12', '10', '8', '5', '2'],
-            speedArgs: function (v) { return ['-preset', v]; }
+            speedArgs: function (v) { return ['-preset', v]; },
+            hwQpScale: { mul: 3.2, add: 0, max: 255 },
+            hw: {
+                nvenc: { encoder: 'av1_nvenc', tenBit: true, tenBitPixFmt: 'p010le' },
+                qsv: { encoder: 'av1_qsv', tenBit: true, tenBitPixFmt: 'p010le' },
+                amf: { encoder: 'av1_amf', tenBit: true, tenBitPixFmt: 'p010le' }
+            }
         },
         vp9: {
             id: 'vp9',
@@ -87,7 +110,11 @@
             twoPass: false,
             tenBit: true,
             speeds: ['5', '4', '2', '1', '0'],
-            speedArgs: function (v) { return ['-deadline', v === '0' ? 'best' : 'good', '-cpu-used', v]; }
+            speedArgs: function (v) { return ['-deadline', v === '0' ? 'best' : 'good', '-cpu-used', v]; },
+            // VP9 没有 NVENC / AMF 实现，QSV 的 vp9_qsv 又极少在消费机上可用，
+            // 干脆不列 —— 走了 CPU 也比给一个多数人跑不通的命令好。
+            hwQpScale: null,
+            hw: {}
         },
         copy: {
             id: 'copy',
@@ -99,9 +126,60 @@
             twoPass: false,
             tenBit: true,
             speeds: null,
-            speedArgs: function () { return []; }
+            speedArgs: function () { return []; },
+            hwQpScale: null,
+            hw: {}
         }
     };
+
+    // ---------------------------------------------------------------------
+    // 硬件加速
+    // ---------------------------------------------------------------------
+    /**
+     * 优先尝试顺序。
+     *
+     * 一台机器理论上可能同时有核显和独显（QSV + NVENC 同时可用），
+     * 独显的编码质量和吞吐通常更好，所以 NVENC 排第一。
+     */
+    var HW_FAMILY_ORDER = ['nvenc', 'qsv', 'amf'];
+
+    var HW_FAMILY_LABEL = {
+        nvenc: 'NVIDIA NVENC',
+        qsv: 'Intel Quick Sync',
+        amf: 'AMD AMF'
+    };
+
+    /**
+     * 硬件解码方式。
+     *
+     * 只给 NVENC 配了 cuda：其余两家的硬解（qsv / d3d11va）要么要求额外
+     * 初始化设备上下文，要么与 -pix_fmt 组合后行为不稳定，收益又不大
+     * （实测硬解只再省约 0.4 核 CPU），不值得冒险。
+     *
+     * 实测补充：`-hwaccel_output_format cuda` 与显式 `-pix_fmt` 同时出现会
+     * 直接报 "Impossible to convert between the formats supported by the
+     * filter 'Parsed_null_0' and the filter 'auto_scale_0'"，整条命令报废。
+     * 所以这里只用不带 output_format 的形式，让帧解码后回到系统内存。
+     */
+    var HW_DECODE_METHOD = { nvenc: 'cuda' };
+
+    /**
+     * NVENC 的速度档位。索引与 CODECS.speeds 对齐（0 最快 → 4 最慢）。
+     *
+     * p3/p5 实测与 p2/p4 画质几乎无差别，跳过不列；p7 是最慢档。
+     */
+    var NVENC_PRESETS = ['p1', 'p2', 'p4', 'p6', 'p7'];
+
+    /**
+     * 使用硬件编码时的并发上限。
+     *
+     * 实测（RTX 4070 Ti SUPER / 驱动 596.21，1080p30 素材）：
+     *   1 路 2838ms，2 路 3057ms，3 路 3838ms，4 路 4573ms，8 路 8220ms。
+     * 换算成吞吐分别是 1x / 1.86x / 2.35x / 2.48x / 2.76x —— 三路之后
+     * 再加并发几乎换不到吞吐，只是把每路都拖慢。取 2 是为了给
+     * 「一路在传帧、一路在编码」留出重叠空间，同时不让单路延迟明显变长。
+     */
+    var HW_MAX_WORKERS = 2;
 
     var SPEED_LABELS = ['极快（体积大）', '快', '均衡', '慢', '极慢（体积最小）'];
 
@@ -237,7 +315,16 @@
      * concurrency 仍是用户上限：用户选择 1 时绝不会被抬高；高负载编码器则
      * 适当收敛，避免多个自带多线程的 FFmpeg 进程互相抢满全部核心。
      */
-    function recommendedWorkerCount(settings, cpuCount, taskCount) {
+    /**
+     * 根据编码负载与可用 CPU 核数给出安全的实际 worker 数。
+     * concurrency 仍是用户上限：用户选择 1 时绝不会被抬高；高负载编码器则
+     * 适当收敛，避免多个自带多线程的 FFmpeg 进程互相抢满全部核心。
+     *
+     * @param {string} [hwKind] 本次使用的编码器家族（'cpu' / 'nvenc' / …）。
+     *                 硬件编码要额外收敛：GPU 的吞吐不会随进程数线性增长，
+     *                 见 HW_MAX_WORKERS 处的实测数据。
+     */
+    function recommendedWorkerCount(settings, cpuCount, taskCount, hwKind) {
         settings = settings || {};
         var requested = Math.max(1, Math.min(4, Number(settings.concurrency) || 1));
         var cores = Math.max(1, Number(cpuCount) || 1);
@@ -247,6 +334,8 @@
         // AV1 与目标大小的两遍编码都属于高 CPU / 长任务，默认单 worker。
         if (settings.codec === 'av1' || settings.mode === 'target') cap = 1;
         else cap = Math.max(1, Math.min(4, Math.floor(cores / 4)));
+
+        if (isHardwareEncoder({ kind: hwKind })) cap = Math.min(cap, HW_MAX_WORKERS);
 
         return Math.max(1, Math.min(requested, cap, tasks));
     }
@@ -488,6 +577,183 @@
             }
             // 定时器触发时若已 settle，done() 会被 settled 标志挡下，无需 clearTimeout
         });
+    }
+
+    // ---------------------------------------------------------------------
+    // 硬件能力探测
+    // ---------------------------------------------------------------------
+    var hwCache = null;
+
+    /**
+     * 解析 `ffmpeg -encoders` 的输出，取出所有编码器名。
+     * 每行形如：  V....D h264_nvenc    NVIDIA NVENC H.264 encoder (codec h264)
+     */
+    function parseEncoderNames(text) {
+        var set = {};
+        String(text || '').split(/\r?\n/).forEach(function (line) {
+            var m = /^\s*[A-Z.]{6}\s+([a-z0-9_]+)\s/.exec(line);
+            if (m) set[m[1]] = true;
+        });
+        return set;
+    }
+
+    function runCapture(bin, args, timeoutMs) {
+        return new Promise(function (resolve) {
+            var out = '';
+            var settled = false;
+            function done(v) {
+                if (settled) return;
+                settled = true;
+                resolve(v);
+            }
+            var timer = setTimeout(function () { done(out); }, timeoutMs || 5000);
+            try {
+                var p = cp.spawn(bin, args);
+                p.stdout.on('data', function (d) { out += d.toString(); });
+                p.on('error', function () { clearTimeout(timer); done(''); });
+                p.on('close', function () { clearTimeout(timer); done(out); });
+            } catch (e) {
+                clearTimeout(timer);
+                done('');
+            }
+        });
+    }
+
+    /**
+     * 探测可用的硬件编码家族。
+     *
+     * 注意这只能证明「FFmpeg 编译进了这个编码器、且它出现在列表里」，
+     * 不能证明机器上真有对应的 GPU —— 例如装了 NVIDIA 驱动但用的是
+     * 集显输出时 h264_nvenc 照样列得出来。真正的成败只有在编码那一刻
+     * 才能确定，所以 app.js 里必须保留「硬件失败 → 回退 CPU」的兜底，
+     * 不能把这里的结论当成保证。
+     *
+     * @returns {Promise<{families:string[], encoders:object, decodeMethods:string[]}>}
+     */
+    function detectHardware(binaries) {
+        if (hwCache) return Promise.resolve(hwCache);
+        if (!binaries || !binaries.ffmpeg) {
+            return Promise.resolve({ families: [], encoders: {}, decodeMethods: [] });
+        }
+
+        var encoders = {};
+        var decodeMethods = [];
+
+        return runCapture(binaries.ffmpeg, ['-hide_banner', '-encoders'], 8000)
+            .then(function (text) {
+                encoders = parseEncoderNames(text);
+                return runCapture(binaries.ffmpeg, ['-hide_banner', '-hwaccels'], 8000);
+            })
+            .then(function (text) {
+                // 输出形如 "Hardware acceleration methods:" 后每行一个方法名
+                String(text || '').split(/\r?\n/).forEach(function (line) {
+                    var name = line.trim();
+                    if (name && /^[a-z0-9_]+$/.test(name) && name.indexOf('acceleration') === -1) {
+                        decodeMethods.push(name);
+                    }
+                });
+
+                var families = HW_FAMILY_ORDER.filter(function (fam) {
+                    return Object.keys(CODECS).some(function (id) {
+                        var hw = CODECS[id].hw;
+                        return !!(hw && hw[fam] && encoders[hw[fam].encoder]);
+                    });
+                });
+
+                hwCache = { families: families, encoders: encoders, decodeMethods: decodeMethods };
+                return hwCache;
+            })
+            .catch(function () {
+                // 探测失败不该阻断启动：当作没有硬件可用，按纯 CPU 走。
+                hwCache = { families: [], encoders: {}, decodeMethods: [] };
+                return hwCache;
+            });
+    }
+
+    /** 清掉探测缓存。仅供测试与「重新检测」使用。 */
+    function resetHardwareCache() { hwCache = null; }
+
+    /**
+     * 选定本次编码真正要用的编码器。
+     *
+     * @param {string} codecId  h264 / h265 / av1 / vp9 / copy
+     * @param {object} settings 含 hwAccel: 'auto' | 'cpu' | 'gpu'
+     * @param {object} hw      detectHardware 的结果
+     * @returns {{codecId:string, encoder:string, kind:string, hw:object|null}}
+     *          kind 为 'cpu' 或某个硬件家族名
+     */
+    function resolveEncoder(codecId, settings, hw) {
+        var codec = CODECS[codecId] || CODECS.h264;
+        var cpu = { codecId: codec.id, encoder: codec.encoder, kind: 'cpu', hw: null };
+
+        // 复制视频流不涉及编码，硬件无从谈起。
+        if (codec.id === 'copy') return cpu;
+
+        var mode = (settings && settings.hwAccel) || 'auto';
+        if (mode === 'cpu') return cpu;
+
+        var available = (hw && hw.encoders) || {};
+        for (var i = 0; i < HW_FAMILY_ORDER.length; i++) {
+            var fam = HW_FAMILY_ORDER[i];
+            var entry = codec.hw && codec.hw[fam];
+            if (entry && available[entry.encoder]) {
+                return { codecId: codec.id, encoder: entry.encoder, kind: fam, hw: entry };
+            }
+        }
+        return cpu;
+    }
+
+    /** 该组合最终会不会走硬件编码。UI 用它决定要不要显示「GPU」标记。 */
+    function isHardwareEncoder(enc) {
+        return !!enc && enc.kind && enc.kind !== 'cpu';
+    }
+
+    /**
+     * 软件 CRF → 硬件恒定 QP。
+     *
+     * 【实测结论，不要凭直觉改】
+     * 直接把 x265 的 crf 当成 NVENC 的 -cq 用是错的：两者刻度不同，
+     * 30 秒 1080p 素材上 x265 -crf 28 出 15.5 MB，hevc_nvenc -cq 28
+     * 出 22.6 MB（+45%）；换一段柔和素材差距更离谱，2.6 MB 对 11.5 MB（+340%）。
+     *
+     * 改成 -rc constqp -qp 后响应曲线几乎贴合 x265 的 CRF：高频素材
+     * q28 与 crf28 体积完全一致，柔和素材偏差 +46%。再补 +2 的偏移
+     * 把两条曲线在中段对齐，残余偏差约 ±20%。
+     *
+     * 同等码率下 NVENC 与 x265 的 PSNR 差距在 0.12 dB 以内（肉眼不可辨），
+     * 所以体积对齐即画质对齐，这个换算是安全的。
+     *
+     * AV1 的 QP 刻度完全不同（0~255），实测 crf 32 对应 av1_nvenc
+     * constqp 约 102，故乘 3.2。
+     *
+     * @param {number} crf     软件编码器的 CRF 值
+     * @param {string} codecId
+     * @returns {number} 硬件恒定 QP
+     */
+    function crfToHwQp(crf, codecId) {
+        var codec = CODECS[codecId] || CODECS.h265;
+        var scale = codec.hwQpScale || { mul: 1, add: 2, max: 51 };
+        var base = isFinite(crf) ? crf : (codec.crf ? codec.crf.def : 28);
+        var qp = Math.round(base * scale.mul + scale.add);
+        return Math.max(1, Math.min(scale.max, qp));
+    }
+
+    /**
+     * 输入侧的硬件解码参数。
+     *
+     * 【必须放在 -i 之前】`-hwaccel` 是输入选项，写在 -i 后面会直接报
+     * "Option hwaccel cannot be applied" 让整条命令失败 —— 实测踩过。
+     * 所以这一组参数只能由调用方插到输入参数区，不能混进输出参数。
+     *
+     * 源编码不被硬件支持时（例如 MPEG-4 / VP9 在部分显卡上），FFmpeg 会
+     * 自动退回软解并打印一行提示，不会失败，所以这里可以无条件加。
+     */
+    function hwInputArgs(enc, hw) {
+        if (!isHardwareEncoder(enc)) return [];
+        var method = HW_DECODE_METHOD[enc.kind];
+        if (!method) return [];
+        if (hw && hw.decodeMethods && hw.decodeMethods.indexOf(method) === -1) return [];
+        return ['-hwaccel', method];
     }
 
     // ---------------------------------------------------------------------
@@ -918,17 +1184,70 @@
     }
 
     /**
+     * 硬件编码器的「恒定画质」参数。
+     *
+     * 三家厂商的开关完全不同名，写错一个就是整条命令报废，所以按家族分开：
+     *   - nvenc  -rc constqp -qp N         （本机 RTX 4070 Ti SUPER 实测通过）
+     *   - qsv    -global_quality N         （Intel 文档，未在本机验证）
+     *   - amf    -rc cqp -qp_i/-qp_p N     （AMD 文档，未在本机验证）
+     * 未验证的两家靠 app.js 的「硬件失败回退 CPU」兜底，不会把任务卡死。
+     */
+    var HW_QUALITY_ARGS = {
+        nvenc: function (qp) { return ['-rc', 'constqp', '-qp', String(qp)]; },
+        qsv: function (qp) { return ['-global_quality', String(qp)]; },
+        amf: function (qp) { return ['-rc', 'cqp', '-qp_i', String(qp), '-qp_p', String(qp)]; }
+    };
+
+    /**
      * 视频编码参数（-c:v / -preset / -pix_fmt / -crf / -profile:v）。
      * 抽出来是给采样预估用的 —— 采样片段必须用和正式编码完全一样的参数，
      * 否则「预估」跟「实际」根本不是一回事。
+     *
+     * @param {object} [enc] resolveEncoder 的结果；省略则按纯 CPU 处理。
      */
-    function videoEncodeArgs(meta, settings, codec, args) {
+    function videoEncodeArgs(meta, settings, codec, args, enc) {
         if (codec.id === 'copy') {
             args.push('-c:v', 'copy');
             return args;
         }
 
-        args.push('-c:v', codec.encoder);
+        args.push('-c:v', (enc && enc.encoder) || codec.encoder);
+
+        if (isHardwareEncoder(enc)) {
+            // 只给 NVENC 映射速度档位。QSV 的 -preset 用的是另一套词表，
+            // AV1 走 QSV 时更是没有 -preset 这个选项（SVT-AV1 的 '8' 传过去
+            // 会直接报无法识别），所以其余两家一律用编码器默认值，
+            // 宁可让「编码速度」这一项暂时无效，也不能让整条命令起不来。
+            if (enc.kind === 'nvenc') {
+                args.push('-preset', NVENC_PRESETS[settings.speedIndex] || NVENC_PRESETS[2]);
+            }
+
+            // 像素格式：硬件 10-bit 用各自的 p010 变体。
+            // hevc_nvenc + p010le 已实测可用（含 HDR 源）。
+            var hwBd = (meta.video && meta.video.bitDepth) || 8;
+            if (hwBd >= 10 && enc.hw && enc.hw.tenBit) {
+                args.push('-pix_fmt', enc.hw.tenBitPixFmt || 'p010le');
+            } else {
+                args.push('-pix_fmt', 'yuv420p');
+            }
+
+            if (settings.mode === 'crf') {
+                var crf = isFinite(settings.crf) ? settings.crf : codec.crf.def;
+                var builder = HW_QUALITY_ARGS[enc.kind];
+                args = args.concat(builder ? builder(crfToHwQp(crf, codec.id)) : []);
+            } else {
+                var hwKbps = settings.mode === 'bitrate'
+                    ? settings.videoBitrate
+                    : calcTargetVideoKbps(meta, settings).kbps;
+                args.push('-b:v', hwKbps + 'k');
+                // VBR 的瞬时峰值会冲得很高，给个上限避免网络播放时卡顿。
+                args.push('-maxrate', Math.round(hwKbps * 1.5) + 'k', '-bufsize', (hwKbps * 2) + 'k');
+                // NVENC 自己的「多遍」：比单遍更贴近目标码率，代价很小。
+                if (enc.kind === 'nvenc') args.push('-multipass', '2');
+            }
+
+            return args;
+        }
 
         // worker 数已按整机预算收敛；这里再给每个编码器明确线程上限，
         // 防止 x264/x265/AV1 默认自动吃满全部核心，导致多任务反而更慢。
@@ -947,8 +1266,8 @@
 
         // 码率控制
         if (settings.mode === 'crf') {
-            var crf = isFinite(settings.crf) ? settings.crf : codec.crf.def;
-            args.push('-crf', String(crf));
+            var crf2 = isFinite(settings.crf) ? settings.crf : codec.crf.def;
+            args.push('-crf', String(crf2));
             // VP9 的 CRF 模式必须显式把码率上限设为 0
             if (codec.id === 'vp9') args.push('-b:v', '0');
         } else {
@@ -1030,7 +1349,7 @@
         return args;
     }
 
-    function buildPlan(meta, settings, outputPath, passLogPrefix) {
+    function buildPlan(meta, settings, outputPath, passLogPrefix, hw) {
         var codec = CODECS[settings.codec] || CODECS.h264;
         var ext = path.extname(meta.path).toLowerCase();
 
@@ -1043,6 +1362,8 @@
             throw e;
         }
 
+        var enc = resolveEncoder(settings.codec, settings, hw);
+
         var args = [];
 
         // 全局参数
@@ -1050,13 +1371,17 @@
         // -nostats 关掉 stderr 上的重复统计，减少噪音
         args.push('-hide_banner', '-loglevel', 'error', '-nostdin', '-y');
         args.push('-progress', 'pipe:1', '-nostats');
+
+        // ---- 输入侧 ----
+        // 硬件解码必须写在这里：它是输入选项，放到 -i 之后 FFmpeg 直接报错拒绝执行。
+        args = args.concat(hwInputArgs(enc, hw));
         args.push('-i', meta.path);
 
         var vf = videoFilters(meta, settings);
         var targetH = resolveTargetHeight(meta, settings);
 
         // ---- 视频流 ----
-        args = videoEncodeArgs(meta, settings, codec, args);
+        args = videoEncodeArgs(meta, settings, codec, args, enc);
 
         // 复制视频流时不能挂滤镜，ffmpeg 会直接报错
         // （Streamcopy requested ... filtered），所以 copy 模式下忽略分辨率与帧率设置
@@ -1078,8 +1403,14 @@
         args = args.concat(hdrPreservationArgs(meta, codec));
 
         // ---- 两遍编码 ----
+        // 硬件编码器不吃这套：NVENC 的 -pass 会被静默忽略，白白多跑一遍
+        // 全片（实测 pass1 正常退出、passlogfile 却是 0 字节），目标码率反而更不准。
+        // 它有自己的 -multipass，已经在 videoEncodeArgs 里加过了，这里必须排除。
         var passes;
-        if (settings.mode === 'target' && codec.twoPass && codec.id !== 'copy') {
+        var wantTwoPass = settings.mode === 'target' && codec.twoPass &&
+            codec.id !== 'copy' && !isHardwareEncoder(enc);
+
+        if (wantTwoPass) {
             var kbps2 = calcTargetVideoKbps(meta, settings).kbps;
             var nullOut = proc.platform === 'win32' ? 'NUL' : '/dev/null';
 
@@ -1099,7 +1430,9 @@
             passes: passes,
             outputExt: path.extname(meta.path).toLowerCase(),
             passLogPrefix: passes.length > 1 ? passLogPrefix : null,
-            targetHeight: targetH
+            targetHeight: targetH,
+            // 回传给调用方：UI 要显示「GPU」标记，失败时要知道该回退成哪个 CPU 编码器。
+            encoder: enc
         };
     }
 
@@ -1155,6 +1488,9 @@
         var token = opts.cancelToken || { cancelled: false };
         var rates = [];
         var details = [];
+        // 采样必须与正式编码用同一套编码器，否则估出来的码率对不上实际产物。
+        // 硬件编码本来就快，采样开销几乎可以忽略。
+        var enc = resolveEncoder(settings.codec, settings, opts.hw);
 
         function audioKbps() {
             if (settings.audioMode === 'none' || !meta.audio) return 0;
@@ -1168,12 +1504,14 @@
             var tmp = path.join(os.tmpdir(), 'eagle-vc-sample-' +
                 Date.now().toString(36) + '-' + index + '-' + Math.random().toString(36).slice(2) + ext);
             var args = [
-                '-hide_banner', '-loglevel', 'error', '-nostdin', '-y',
-                // 输入前定位优先速度。采样是预览，不应为了精确帧定位去把长片解码一遍。
-                '-ss', String(win.start), '-i', meta.path,
-                '-t', String(win.duration), '-map', '0:v:0'
+                '-hide_banner', '-loglevel', 'error', '-nostdin', '-y'
             ];
-            args = videoEncodeArgs(meta, settings, codec, args);
+            // 硬件解码是输入选项，必须排在 -i 之前。
+            args = args.concat(hwInputArgs(enc, opts.hw));
+            // 输入前定位优先速度。采样是预览，不应为了精确帧定位去把长片解码一遍。
+            args.push('-ss', String(win.start), '-i', meta.path,
+                '-t', String(win.duration), '-map', '0:v:0');
+            args = videoEncodeArgs(meta, settings, codec, args, enc);
             if (filters.length) args.push('-vf', filters.join(','));
             args.push('-an', tmp);
 
@@ -1444,6 +1782,15 @@
         isVideoFile: isVideoFile,
         resolveAudioEncoder: resolveAudioEncoder,
 
+        // 硬件加速
+        detectHardware: detectHardware,
+        resetHardwareCache: resetHardwareCache,
+        resolveEncoder: resolveEncoder,
+        isHardwareEncoder: isHardwareEncoder,
+        crfToHwQp: crfToHwQp,
+        HW_FAMILY_LABEL: HW_FAMILY_LABEL,
+        HW_MAX_WORKERS: HW_MAX_WORKERS,
+
         // UI 需要的判断：HDR 破坏风险和容器能否存标记
         hdrRisk: hdrRisk,
         supportsCompressionMarker: supportsCompressionMarker,
@@ -1465,7 +1812,13 @@
             preferredTempDir: preferredTempDir,
             recommendedWorkerCount: recommendedWorkerCount,
             recommendedThreadCount: recommendedThreadCount,
-            withTimeout: withTimeout
+            withTimeout: withTimeout,
+            videoEncodeArgs: videoEncodeArgs,
+            hwInputArgs: hwInputArgs,
+            parseEncoderNames: parseEncoderNames,
+            HW_QUALITY_ARGS: HW_QUALITY_ARGS,
+            NVENC_PRESETS: NVENC_PRESETS,
+            HW_FAMILY_ORDER: HW_FAMILY_ORDER
         }
     };
 });

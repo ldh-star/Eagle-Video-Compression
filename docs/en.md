@@ -47,6 +47,14 @@ A local batch video compression plugin for Eagle. It picks up the videos you hav
 <!-- section:changelog -->
 ## Changelog
 
+### 1.1.0
+
+- Added GPU hardware encoding for NVIDIA NVENC, Intel Quick Sync, and AMD AMF. The new **Hardware acceleration** dropdown offers automatic, force GPU, or CPU only, and reports which family it detected.
+- Fixed quality-scale conversion: CRF and hardware QP are different scales, so values are now converted to `-rc constqp -qp` (+2 for H.264/HEVC, ×3.2 for AV1) instead of producing files 45% to 340% off target.
+- A failed hardware encode is retried once on the CPU rather than failing outright. VP9 has no hardware implementation and always uses the CPU.
+- Concurrency is capped at two for hardware encoding, and the pre-compression size estimate now reflects the selected encoder.
+- On 1080p30 test footage, H.265 went from roughly 28 seconds at about ten cores to roughly 3 seconds at under one core, within 0.12 dB PSNR.
+
 ### 1.0.2
 
 - Added HDR detection, with an amber badge in the task list for HDR10 / HLG / Dolby Vision / HDR10+.

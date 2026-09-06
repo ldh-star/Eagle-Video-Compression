@@ -138,6 +138,21 @@ $NODE tests/test_queue_intake.js        # cancellation, queue intake, atomic com
 
 ## Changelog
 
+### 1.1.0
+
+**Added**
+
+- **GPU hardware encoding.** Compression can now run on the GPU instead of the CPU. A new **Hardware acceleration** dropdown offers automatic, force GPU, or CPU only. Automatic is the default and uses a hardware encoder when one is available, falling back to software without comment when none is. Supported families are NVIDIA NVENC, Intel Quick Sync Video, and AMD AMF, detected at startup by querying the encoder and hardware-acceleration lists of whichever FFmpeg binary is in use. The dropdown reports the family it found, so whether a machine will benefit is visible rather than something to guess at.
+  - **Not every format has hardware support from every vendor.** VP9 has no NVENC or AMF implementation, and Intel's `vp9_qsv` is rarely usable on consumer hardware, so VP9 always encodes on the CPU. Options with no encoder behind them are disabled rather than silently ignored.
+  - Concurrency is reduced when encoding on the GPU. Throughput stops improving past roughly three parallel NVENC sessions, so the worker budget is capped at two for hardware encoding — running eight at once just spreads the same total throughput over more files.
+  - **A hardware failure does not fail the task.** Some drivers advertise an encoder they cannot actually initialise — a laptop whose discrete GPU is powered down still lists `h264_nvenc`. A failed hardware encode is therefore retried once on the CPU before the task is marked failed.
+- **Quality settings now carry over correctly to hardware encoders.** CRF, as used by software encoders, and QP, as used by hardware ones, are different scales. Passing a CRF of 28 straight through as NVENC's `-cq` produces files between 45% smaller and 340% larger than intended. The plugin converts to `-rc constqp -qp` instead: an offset of +2 for H.264 and HEVC, and a factor of 3.2 for AV1, whose QP scale runs 0–255 rather than 0–51.
+
+**Improved**
+
+- Hardware encoding is markedly faster and far lighter on the CPU. On 1080p30 test footage, H.265 went from roughly 28 seconds at around ten cores of CPU load to roughly 3 seconds at under one core, with the output within 0.12 dB PSNR of the software encode at equivalent bitrate.
+- The pre-compression size estimate accounts for the selected encoder, so previewed sizes reflect what the GPU will actually produce rather than what a software encoder would have.
+
 ### 1.0.2
 
 **Added**

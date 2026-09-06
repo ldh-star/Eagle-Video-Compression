@@ -47,6 +47,14 @@ Un complemento de transcodificación local para comprimir vídeos por lotes en E
 <!-- section:changelog -->
 ## Historial de versiones
 
+### 1.1.0
+
+- Se añade codificación por GPU: compatible con NVIDIA NVENC, Intel QSV y AMD AMF. El nuevo selector «Aceleración por hardware» ofrece automático, forzar GPU o solo CPU (automático por defecto, con el nombre de la GPU detectada).
+- Se corrige la conversión de la escala de calidad: CRF y QP por hardware son escalas distintas, así que ahora se convierte a `-rc constqp -qp` (+2 en H.264/HEVC, ×3.2 en AV1). Antes el tamaño se desviaba entre un 45 % y un +340 %.
+- Si la codificación por hardware falla, se reintenta una vez en CPU. VP9 no tiene implementación por hardware y siempre usa la CPU.
+- Con codificación por hardware la concurrencia se limita a 2, y la estimación de tamaño previa tiene en cuenta el codificador seleccionado.
+- En material 1080p30, H.265 pasó de unos 28 s y unos 10 núcleos a unos 3 s y menos de un núcleo, con una diferencia de PSNR inferior a 0,12 dB.
+
 ### 1.0.2
 
 - Añadida la detección de HDR, con una insignia ámbar en la lista de tareas para HDR10 / HLG / Dolby Vision / HDR10+.
