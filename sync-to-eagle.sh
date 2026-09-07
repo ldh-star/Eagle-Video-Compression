@@ -37,6 +37,8 @@ EXCLUDES=(
     '.git'
     '.gitignore'
     '.idea'
+    # 提交给 Eagle 插件中心的文案汇总，是 docs/ 的产物，不该进 .eagleplugin
+    'SUBMISSION.md'
     'sync-to-eagle.sh'
     'tests'
     'tools'

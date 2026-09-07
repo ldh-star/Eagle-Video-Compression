@@ -11,6 +11,7 @@ Un complemento de transcodificación local para comprimir vídeos por lotes en E
 - La estimación de tamaño en modo CRF se basa en codificaciones de muestra reales, por lo que la interfaz muestra un intervalo en lugar de una cifra exacta engañosa.
 - Controles de resolución, velocidad de fotogramas, audio, velocidad de codificación, concurrencia y tratamiento de fuentes de 10 bits.
 - Detecta fuentes HDR y conserva sus metadatos de color al recodificar; marca los archivos ya comprimidos para evitar una segunda pasada con pérdida por descuido.
+- Codificación por GPU opcional (NVIDIA NVENC, Intel Quick Sync, AMD AMF), que se usa automáticamente cuando hay hardware compatible y vuelve a la codificación por software en CPU en caso contrario.
 - La copia de seguridad está desactivada por defecto y no puede activarse hasta elegir una carpeta de destino.
 - Los ajustes se conservan, la interfaz sigue el tema de Eagle y hay ocho idiomas disponibles.
 
@@ -35,6 +36,21 @@ Un complemento de transcodificación local para comprimir vídeos por lotes en E
 | Calidad primero (CRF) | Uso general, calidad visual constante | El tamaño final depende de la complejidad de la fuente; se muestra un intervalo estimado a partir de muestras |
 | Tasa de bits objetivo | Cuando ya conoces la tasa de bits | Se calcula a partir de la duración, la tasa de bits de vídeo y los ajustes de audio |
 | Tamaño de archivo objetivo | Presupuesto de tamaño estricto | H.264/H.265 usan dos pasadas para acercarse al objetivo; la sobrecarga del contenedor y del audio puede causar una pequeña diferencia |
+
+**Cómo elegir la aceleración por hardware**
+
+El selector «Aceleración por hardware» ofrece tres opciones:
+
+| Opción | Comportamiento |
+| --- | --- |
+| Automático (se detectó …) | Usa la GPU si hay un codificador por hardware utilizable y vuelve a la CPU en caso contrario. Es el valor predeterminado y muestra la familia detectada |
+| Forzar codificación por GPU | Solo codificación por hardware; falla si este equipo no tiene ningún codificador utilizable |
+| Solo codificación por software en CPU | Codificación por software de principio a fin, el resultado más predecible |
+
+- Se admiten NVIDIA NVENC, Intel Quick Sync Video y AMD AMF. La codificación por hardware suele ser de 3 a 5 veces más rápida y reduce mucho el uso de CPU, con una calidad a igual tasa de bits prácticamente equivalente a la codificación por software.
+- VP9 no tiene implementación por hardware y siempre usa la CPU.
+- Si la codificación por hardware falla, se reintenta una vez en CPU en lugar de marcar la tarea como fallida de inmediato.
+- En macOS, si ninguna de las tres está disponible, el complemento vuelve a la codificación por software. Es el comportamiento esperado.
 
 **Colores del cambio de almacenamiento**: verde significa menor que el original, rojo significa mayor, y el color de texto normal indica que apenas hay cambio o que el intervalo estimado cruza el tamaño original.
 

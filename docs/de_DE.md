@@ -11,6 +11,7 @@ Ein lokales Plugin für die Stapelkomprimierung von Videos in Eagle. Es lädt di
 - Die Größenschätzung im CRF-Modus beruht auf echten Stichproben-Kodierungen. Angezeigt wird deshalb ein Bereich statt eines irreführenden exakten Werts.
 - Einstellbar sind Auflösung, Bildrate, Audio, Kodiergeschwindigkeit, Parallelität und der Umgang mit 10-Bit-Quellen.
 - HDR-Quellen werden erkannt, und die Farbmetadaten bleiben beim Neukodieren erhalten. Bereits komprimierte Dateien werden markiert, damit kein zweiter verlustbehafteter Durchgang aus Versehen passiert.
+- Optionale GPU-Hardwarekodierung (NVIDIA NVENC, Intel Quick Sync, AMD AMF), die bei vorhandener geeigneter Hardware automatisch genutzt wird und sonst auf die CPU-Softwarekodierung zurückfällt.
 - Die Sicherung ist standardmäßig deaktiviert und lässt sich erst nach Auswahl eines Sicherungsordners einschalten.
 - Einstellungen bleiben erhalten, die Oberfläche folgt dem Eagle-Design, acht Sprachen werden unterstützt.
 
@@ -35,6 +36,21 @@ Ein lokales Plugin für die Stapelkomprimierung von Videos in Eagle. Es lädt di
 | Qualität zuerst (CRF) | Allgemeine Nutzung, gleichbleibende Bildqualität | Die Endgröße hängt von der Komplexität der Quelle ab; angezeigt wird ein geschätzter Bereich aus Stichproben-Kodierungen |
 | Zielbitrate | Bekannte Zielbitrate | Wird aus Dauer, Videobitrate und Audioeinstellungen berechnet |
 | Zieldateigröße | Striktes Größenbudget | H.264/H.265 nähern sich per Two-Pass an; Container- und Audio-Overhead können eine kleine Abweichung verursachen |
+
+**Hardwarebeschleunigung wählen**
+
+Die Auswahl „Hardwarebeschleunigung“ bietet drei Optionen:
+
+| Option | Verhalten |
+| --- | --- |
+| Automatisch (… erkannt) | Nutzt die GPU, wenn ein brauchbarer Hardware-Encoder vorhanden ist, sonst die CPU. Dies ist die Voreinstellung; die erkannte Familie wird angezeigt |
+| GPU-Hardwarekodierung erzwingen | Ausschließlich Hardwarekodierung; schlägt fehl, wenn kein brauchbarer Hardware-Encoder vorhanden ist |
+| Nur CPU-Softwarekodierung | Durchgehend Softwarekodierung, das am besten vorhersehbare Ergebnis |
+
+- Unterstützt werden NVIDIA NVENC, Intel Quick Sync Video und AMD AMF. Hardwarekodierung ist typischerweise 3–5× schneller und beansprucht die CPU weit weniger; bei gleicher Bitrate ist die Qualität etwa gleichauf mit der Softwarekodierung.
+- VP9 hat keine Hardware-Implementierung und läuft immer über die CPU.
+- Eine fehlgeschlagene Hardwarekodierung wird einmal auf der CPU wiederholt, statt die Aufgabe sofort als fehlgeschlagen zu markieren.
+- Unter macOS fällt das Plugin auf Softwarekodierung zurück, wenn keine der drei verfügbar ist. Das ist erwartetes Verhalten.
 
 **Farben der Speicheränderung**: Grün bedeutet kleiner als das Original, Rot größer, und die normale Textfarbe bedeutet nahezu unverändert oder dass der Schätzbereich die Originalgröße überschneidet.
 

@@ -11,6 +11,7 @@ A local batch video compression plugin for Eagle. It picks up the videos you hav
 - CRF size estimates come from real stratified sample encodes, so the UI shows a range instead of a misleading exact number.
 - Controls for resolution, frame rate, audio, encoding speed, concurrency, and 10-bit source handling.
 - HDR sources are detected and their colour metadata is carried through re-encoding; already-compressed files are marked so you do not run a second lossy pass by accident.
+- Optional GPU hardware encoding (NVIDIA NVENC, Intel Quick Sync, AMD AMF), used automatically when suitable hardware is present and falling back to CPU software encoding otherwise.
 - Backup is off by default and cannot be enabled until you pick a backup folder.
 - Settings persist, the UI follows Eagle's theme, and eight languages are available.
 
@@ -35,6 +36,21 @@ A local batch video compression plugin for Eagle. It picks up the videos you hav
 | Quality first (CRF) | General use, consistent visual quality | Final size depends on source complexity; the UI shows an estimated range from sample encodes |
 | Target bitrate | A known delivery bitrate | Calculated from duration, video bitrate, and audio settings |
 | Target file size | A strict size budget | H.264/H.265 use two-pass encoding; container and audio overhead can still cause a small difference |
+
+**Choosing hardware acceleration**
+
+The **Hardware acceleration** dropdown has three options:
+
+| Option | Behaviour |
+| --- | --- |
+| Auto (detected …) | Uses the GPU when a usable hardware encoder is found, otherwise falls back to the CPU. This is the default, and the dropdown reports which family it detected |
+| Force GPU hardware encoding | Hardware encoding only; fails if this machine has no usable hardware encoder |
+| CPU software encoding only | Software encoding throughout, the most predictable result |
+
+- NVIDIA NVENC, Intel Quick Sync Video, and AMD AMF are supported. Hardware encoding is typically 3–5× faster and uses far less CPU, with quality at a given bitrate about equal to software encoding.
+- VP9 has no hardware implementation and always uses the CPU.
+- A failed hardware encode is retried once on the CPU rather than failing the task outright.
+- On macOS, if none of the three is available, the plugin falls back to software encoding. This is expected.
 
 **Storage-change colours**: green means the result is smaller than the original, red means larger, and the normal text colour means it is nearly unchanged or the estimate range crosses the original size.
 
