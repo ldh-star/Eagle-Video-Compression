@@ -1,3 +1,5 @@
 /.idea/
 /.tmp-e2e/
 /.workbuddy/
+# 用例运行器写出的结构化结果（--json 同时落盘，供 CI 消费）
+/tests/.run-result.json

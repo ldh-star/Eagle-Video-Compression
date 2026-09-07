@@ -51,7 +51,7 @@ done
 step "JS 语法"
 JS_BAD=0
 JS_COUNT=0
-for f in js/*.js tools/*.js tests/*.js; do
+for f in js/*.js tools/*.js tests/*.js tests/cases/*.js; do
     [ -e "$f" ] || continue
     JS_COUNT=$((JS_COUNT + 1))
     if ! "$NODE" --check "$f" 2>/dev/null; then
@@ -79,6 +79,28 @@ if [ -d tests ]; then
     done
 else
     bad "tests/ 目录不存在"
+fi
+
+# 3b. 标准用例集
+#
+# 与 3a 的区别：3a 是「当前行为对不对」的回归脚本；这一批是「已知缺陷的契约」，
+# 里面有一半是刻意写成 xfail 的 —— 它们现在就该失败，等修好了运行器会报 XPASS
+# 逼你回来翻状态。所以这里不能用「有没有用例失败」判断好坏，只看运行器退出码：
+# 退出码非 0 意味着 FAIL（已实现的行为被改坏）或 XPASS（缺陷已修但状态没翻）。
+step "标准用例集"
+if [ -f tools/run-tests.js ]; then
+    OUT="$("$NODE" tools/run-tests.js 2>&1)"
+    RC=$?
+    echo "$OUT" | grep -E '^(FAIL|XPASS)' | sed 's/^/        /'
+    echo "$OUT" | grep -E '^通过 ' | sed 's/^/  /'
+    if [ "$RC" -eq 0 ]; then
+        ok "无 FAIL / XPASS（KNOWN-FAIL 是已登记待修的缺陷，不算红）"
+    else
+        bad "用例集未通过：FAIL = 已实现的行为被改坏；XPASS = 缺陷已修复，请把该用例 status 从 xfail 翻成 implemented"
+        echo "$OUT" | tail -30 | sed 's/^/        /'
+    fi
+else
+    bad "tools/run-tests.js 不存在"
 fi
 
 # ---- 4. 多语言一致性 --------------------------------------------------------

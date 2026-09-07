@@ -63,6 +63,19 @@ Die Auswahl „Hardwarebeschleunigung“ bietet drei Optionen:
 <!-- section:changelog -->
 ## Versionsverlauf
 
+### 1.1.1
+
+- Behoben: Nach der Komprimierung blieb von mehreren Tonspuren nur eine übrig. Jetzt werden alle Tonspuren unverändert übernommen.
+- Behoben: Ein Ergebnis, das größer als die Quelle war, ersetzte trotzdem das Original. Solche Dateien werden jetzt übersprungen und das Original bleibt unangetastet.
+- Behoben: Beim Abbrechen konnte eine beschädigte, halb geschriebene Datei zurückbleiben. Der laufende Prozess wird jetzt zuerst zum sauberen Beenden aufgefordert und erst danach zwangsweise beendet.
+- Behoben: Temporäre Dateien aus der Komprimierung wurden von Eagle als neue Elemente in die Bibliothek aufgenommen.
+- Verbessert: Das Importieren großer Mengen an Elementen blockiert die Oberfläche nicht mehr; bei 100 Dateien sank der Aufwand auf etwa 1/144.
+- Verbessert: Das Auslesen der Dateiinformationen ist etwa dreimal so schnell; 25 Dateien brauchten 1,3 s, jetzt 0,45 s.
+- Verbessert: VP9 kodiert jetzt mit mehreren Threads zugleich; bei 1080p-Material war es im Test etwa 2,2× schneller.
+- Verbessert: Das Übernehmen des Ergebnisses erfolgt per Umbenennen; das Zurückschreiben einer 1 GB großen Datei dauerte etwa 1 Sekunde, jetzt praktisch nichts.
+- Verbessert: Bei mehreren gleichzeitig laufenden Aufgaben werden die Kodier-Threads nach einem Gesamtbudget für den Rechner verteilt; die CPU-Last insgesamt sinkt um etwa 6–9 %.
+- Neu: Auf Rechnern mit 24 oder mehr Kernen lässt sich die Parallelität auf 6 oder 8 einstellen.
+
 ### 1.1.0
 
 - GPU-Hardware-Encoding hinzugefügt: NVIDIA NVENC, Intel QSV und AMD AMF werden unterstützt. Die neue Auswahl „Hardwarebeschleunigung" bietet automatisch, GPU erzwingen oder nur CPU (Standard: automatisch, mit Anzeige der erkannten GPU).

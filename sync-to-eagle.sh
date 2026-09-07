@@ -43,7 +43,9 @@ EXCLUDES=(
     'tests'
     'tools'
     'docs'
+    'reports'
     '.codebuddy'
+    '.workbuddy'
 )
 
 RSYNC_ARGS=()

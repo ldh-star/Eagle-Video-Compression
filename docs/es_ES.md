@@ -63,6 +63,19 @@ El selector «Aceleración por hardware» ofrece tres opciones:
 <!-- section:changelog -->
 ## Historial de versiones
 
+### 1.1.1
+
+- Corregido: en los archivos con varias pistas de audio solo quedaba una pista después de comprimir. Ahora se conservan todas las pistas tal cual.
+- Corregido: si el resultado salía más grande que el original, aun así lo sustituía. Ahora esos archivos se omiten y el original queda intacto.
+- Corregido: al cancelar una tarea podía quedar un archivo a medias y dañado. Ahora se pide primero una salida ordenada y solo después se fuerza el final.
+- Corregido: los archivos temporales generados durante la compresión aparecían en Eagle como elementos nuevos de la biblioteca.
+- Mejorado: importar gran cantidad de elementos ya no bloquea la interfaz; con 100 archivos el trabajo se redujo a aproximadamente 1/144 del anterior.
+- Mejorado: la lectura de la información de los archivos es unas 3 veces más rápida; 25 archivos pasaron de 1,3 s a 0,45 s.
+- Mejorado: VP9 ahora codifica con varios hilos a la vez; en material 1080p fue unas 2,2 veces más rápido en las pruebas.
+- Mejorado: el resultado se aplica mediante un simple renombrado; escribir de vuelta un archivo de 1 GB pasó de unos 1 s a prácticamente nada.
+- Mejorado: al comprimir varias tareas a la vez, los hilos de codificación se reparten según un presupuesto global del equipo; el uso total de CPU baja aproximadamente un 6–9 %.
+- Añadido: en equipos de 24 núcleos o más, la concurrencia puede ajustarse a 6 u 8.
+
 ### 1.1.0
 
 - Se añade codificación por GPU: compatible con NVIDIA NVENC, Intel QSV y AMD AMF. El nuevo selector «Aceleración por hardware» ofrece automático, forzar GPU o solo CPU (automático por defecto, con el nombre de la GPU detectada).

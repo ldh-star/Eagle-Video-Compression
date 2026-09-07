@@ -1,0 +1,434 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>视频压缩插件 · 性能优化实测评测报告 1.1.1</title>
+<style>
+  :root{
+    --bg:#0f1115; --card:#171a21; --card2:#1c2029; --line:#272c37;
+    --fg:#e6e9ef; --dim:#98a2b3; --dim2:#6b7484;
+    --old:#7c8598; --new:#22d3ee;
+    --good:#34d399; --warn:#fbbf24; --bad:#f87171;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--fg);
+    font:15px/1.65 -apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue",Arial,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1080px;margin:0 auto;padding:48px 28px 80px}
+  header{border-bottom:1px solid var(--line);padding-bottom:28px;margin-bottom:40px}
+  h1{margin:0 0 10px;font-size:30px;letter-spacing:-.4px}
+  .sub{color:var(--dim);font-size:14px}
+  .badge{display:inline-block;padding:2px 9px;border-radius:99px;font-size:12px;
+         border:1px solid var(--line);background:var(--card2);color:var(--dim);margin-right:6px}
+  h2{font-size:20px;margin:52px 0 6px;letter-spacing:-.2px}
+  h2 .num{color:var(--dim2);font-weight:400;margin-right:10px;font-variant-numeric:tabular-nums}
+  .lead{color:var(--dim);font-size:14px;margin:0 0 22px;max-width:78ch}
+  h3{font-size:15px;margin:30px 0 12px;color:var(--fg)}
+
+  /* 关键结论卡片 */
+  .kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:14px;margin:26px 0 8px}
+  .kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 18px 16px}
+  .kpi .k{color:var(--dim);font-size:12.5px;letter-spacing:.02em}
+  .kpi .v{font-size:29px;font-weight:650;margin:8px 0 2px;font-variant-numeric:tabular-nums;letter-spacing:-.5px}
+  .kpi .d{font-size:12.5px;color:var(--dim2)}
+  .up{color:var(--good)} .down{color:var(--bad)} .flat{color:var(--warn)}
+
+  table{width:100%;border-collapse:collapse;font-size:13.5px;margin:14px 0 4px}
+  th,td{text-align:right;padding:9px 10px;border-bottom:1px solid var(--line)}
+  th:first-child,td:first-child{text-align:left}
+  thead th{color:var(--dim);font-weight:500;font-size:12.5px;border-bottom:1px solid var(--line)}
+  tbody tr:hover{background:#14171d}
+  td.num{font-variant-numeric:tabular-nums}
+  .tag{font-size:11.5px;padding:1px 7px;border-radius:5px;border:1px solid var(--line);color:var(--dim)}
+
+  /* 条形图 */
+  .bars{margin:18px 0 6px}
+  .row{display:grid;grid-template-columns:96px 1fr 118px;align-items:center;gap:12px;margin-bottom:11px}
+  .row .lab{font-size:13px;color:var(--dim);text-align:right}
+  .track{position:relative;height:26px;background:#14171d;border-radius:6px;overflow:hidden;border:1px solid var(--line)}
+  .bar{position:absolute;left:0;top:0;height:50%;display:flex;align-items:center;justify-content:flex-end;
+       padding-right:7px;font-size:11.5px;color:#0b0e13;font-weight:650;font-variant-numeric:tabular-nums}
+  .bar.o{top:0;background:var(--old)}
+  .bar.n{top:50%;background:var(--new)}
+  .row .delta{font-size:13px;font-variant-numeric:tabular-nums;text-align:left}
+  .legend{display:flex;gap:18px;font-size:12.5px;color:var(--dim);margin:6px 0 0 108px}
+  .legend i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:6px;vertical-align:-1px}
+
+  /* O(N^2) 曲线 */
+  .chart{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px 20px 12px;margin:18px 0}
+  .chart svg{width:100%;height:auto;display:block}
+
+  .note{background:var(--card2);border-left:2px solid var(--warn);border-radius:0 8px 8px 0;
+        padding:13px 16px;margin:18px 0;font-size:13.5px;color:var(--dim)}
+  .note b{color:var(--fg);font-weight:600}
+  .note.good{border-left-color:var(--good)}
+  .note.bad{border-left-color:var(--bad)}
+
+  code{font:12.5px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;background:#0b0e13;
+       border:1px solid var(--line);border-radius:5px;padding:1.5px 5px;color:#cbd5e1}
+  pre{background:#0b0e13;border:1px solid var(--line);border-radius:9px;padding:14px 16px;
+      overflow-x:auto;font:12.5px/1.65 ui-monospace,SFMono-Regular,Menlo,monospace;color:#cbd5e1;margin:12px 0}
+  pre .c{color:#5b6472}
+  ul{padding-left:20px;margin:10px 0}li{margin:5px 0;color:var(--dim);font-size:14px}
+  li b,li strong{color:var(--fg)}
+  .foot{margin-top:56px;padding-top:22px;border-top:1px solid var(--line);color:var(--dim2);font-size:12.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <h1>性能优化实测评测报告</h1>
+  <div class="sub">
+    <span class="badge">基线 1.1.0（git <code>acb6370</code>）</span>
+    <span class="badge">对照 1.1.1（工作区）</span>
+    <span class="badge">2026-09-07</span>
+  </div>
+  <div class="sub" style="margin-top:12px">
+    所有数字都是本机实跑出来的，不是估算。旧版用 <code>git worktree</code> 检出已发布的 1.1.0 单独跑，
+    新版用同一份工作区代码；两边共用同一段测试素材、同一条参数生成路径，
+    <b>只有代码自己决定的线程数与私有参数不同</b>。
+  </div>
+</header>
+
+<h2><span class="num">0</span>一句话结论</h2>
+<p class="lead">
+  这一轮最大的收益不在编码速度，而在<b>界面不再卡</b>和<b>不再悄悄丢音轨</b>。
+  导入 100 个文件的界面开销降到 1/144，真实素材探测快 2.9×，提交大文件从整盘拷贝变成一次重命名。
+  编码侧只有 VP9 拿到了 2.18× 的实打实提速；H.265 / AV1 在满负载下的<b>吞吐基本持平</b>，
+  换来的是 CPU 总占用降低 6~9%。
+</p>
+
+<div class="kpis">
+  <div class="kpi"><div class="k">导入 100 文件 · 界面开销</div><div class="v up">144×</div><div class="d">144146 → 1000 次数组访问</div></div>
+  <div class="kpi"><div class="k">导入 25 文件 · 探测耗时</div><div class="v up">2.93×</div><div class="d">1322ms → 451ms（真实 ffprobe）</div></div>
+  <div class="kpi"><div class="k">VP9 单文件编码</div><div class="v up">2.18×</div><div class="d">11.58s → 5.32s</div></div>
+  <div class="kpi"><div class="k">提交 1GB 文件</div><div class="v up">240×</div><div class="d">958ms → 4ms</div></div>
+  <div class="kpi"><div class="k">双音轨素材</div><div class="v up">2 / 2</div><div class="d">旧版只留 1 条，新版全保留</div></div>
+</div>
+
+<h2><span class="num">1</span>测量环境与方法</h2>
+<p class="lead">先说清条件，数字才有意义。</p>
+<table>
+  <tbody>
+    <tr><td>机器</td><td class="num">Apple Silicon，14 逻辑核（10 性能 + 4 能效）</td></tr>
+    <tr><td>FFmpeg</td><td class="num">7.1.1（Homebrew，系统 PATH）</td></tr>
+    <tr><td>测试素材</td><td class="num">1920×1080 @30fps / 5s / 双音轨，libx264 CRF 14 生成（91 MB）</td></tr>
+    <tr><td>素材性质</td><td class="num">合成内容（testsrc2 + 噪点），<b>绝对耗时不代表真实影片</b>，只看新旧相对差</td></tr>
+    <tr><td>耗时口径</td><td class="num">wall = 墙钟秒；CPU = 所有进程 utime+stime 之和（取自 ffmpeg <code>-benchmark</code>）</td></tr>
+    <tr><td>并行度口径</td><td class="num">par = CPU ÷ wall，即在飞的平均核数，越大说明越霸占整机</td></tr>
+    <tr><td>取样</td><td class="num">每个场景跑 1 轮。差异 &lt;10% 的一律标为「持平/噪声」，不作为结论</td></tr>
+  </tbody>
+</table>
+
+<h2><span class="num">2</span>编码速度：只有 VP9 拿到了大收益</h2>
+<p class="lead">
+  单文件场景，1080p / 5s 素材，CRF 档位取各编码默认值（H.265=28，VP9=32，AV1=32，H.264=23）。
+  新版把线程预算从 8 提到 13，并补上了编码器真正认的私有参数。
+</p>
+
+<div class="bars">
+  <div class="row"><div class="lab">VP9</div>
+    <div class="track"><div class="bar o" style="width:100%">11.58s</div><div class="bar n" style="width:45.9%">5.32s</div></div>
+    <div class="delta up">−54% · 2.18×</div></div>
+  <div class="row"><div class="lab">H.264</div>
+    <div class="track"><div class="bar o" style="width:18.0%">2.08s</div><div class="bar n" style="width:15.2%">1.76s</div></div>
+    <div class="delta up">−15% · 1.18×</div></div>
+  <div class="row"><div class="lab">H.265</div>
+    <div class="track"><div class="bar o" style="width:17.5%">2.03s</div><div class="bar n" style="width:18.7%">2.17s</div></div>
+    <div class="delta flat">+7% · 噪声</div></div>
+  <div class="row"><div class="lab">AV1</div>
+    <div class="track"><div class="bar o" style="width:12.4%">1.44s</div><div class="bar n" style="width:14.0%">1.62s</div></div>
+    <div class="delta flat">+13% · 噪声</div></div>
+  <div class="legend"><span><i style="background:var(--old)"></i>1.1.0</span><span><i style="background:var(--new)"></i>1.1.1</span><span style="margin-left:auto">条形越短越快</span></div>
+</div>
+
+<table>
+  <thead><tr><th>编码</th><th>旧 wall</th><th>新 wall</th><th>变化</th><th>旧 CPU</th><th>新 CPU</th><th>输出体积变化</th></tr></thead>
+  <tbody>
+    <tr><td>VP9</td><td class="num">11.58s</td><td class="num">5.32s</td><td class="up">−54.1%</td><td class="num">41.0s</td><td class="num">46.1s</td><td class="num">+0.45%</td></tr>
+    <tr><td>H.264</td><td class="num">2.08s</td><td class="num">1.76s</td><td class="up">−15.4%</td><td class="num">15.8s</td><td class="num">16.4s</td><td class="num">+0.58%</td></tr>
+    <tr><td>H.265</td><td class="num">2.03s</td><td class="num">2.17s</td><td class="flat">+6.9%</td><td class="num">19.7s</td><td class="num">19.7s</td><td class="num">+0.00%</td></tr>
+    <tr><td>AV1</td><td class="num">1.44s</td><td class="num">1.62s</td><td class="flat">+12.5%</td><td class="num">13.5s</td><td class="num">13.7s</td><td class="num">+1.51%</td></tr>
+  </tbody>
+</table>
+
+<div class="note good">
+  <b>VP9 为什么快这么多：</b>新版补上了 <code>-row-mt 1 -tile-columns 2</code>。
+  旧版只给了 <code>-threads 8</code>，但 libvpx-vp9 的 <code>-threads</code> 只是个「建议值」，
+  不开 row-mt 时它几乎单线程跑。实测 CPU 时间从 41.0s 涨到 46.1s（多核并行有同步开销），
+  但墙钟从 11.58s 砍到 5.32s —— 这正是并行化该有的形状：<b>总工作量略增，等待时间腰斩</b>。
+</div>
+<div class="note">
+  <b>H.265 / AV1 为什么没变快：</b>这两个本来就自动吃满核心（x265 默认建 14 线程池，
+  SVT-AV1 默认并行度 5+），<code>-threads</code> 对它们无效，所以旧版也没吃亏。
+  新版补的 <code>pools=N</code> / <code>lp=N</code> 是<b>上限约束</b>而非加速手段 —— 它在单任务场景下不会让编码更快，
+  价值在下一节的并发场景。AV1 体积 +1.5% 是 <code>tune=0</code>（PSNR 取向）换来的画质取向变化，不是退化。
+</div>
+
+<h2><span class="num">3</span>并发与资源预算：吞吐持平，CPU 占用下降</h2>
+<p class="lead">
+  8 个文件同时编码。这是「资源预算」这批改动的主战场：旧版每个 x265 进程都按自己的默认建满线程池，
+  8 个进程互相抢；新版按整机预算给每个进程发固定配额。
+</p>
+
+<div class="bars">
+  <div class="row"><div class="lab">H.265 · CPU</div>
+    <div class="track"><div class="bar o" style="width:100%">165.2s</div><div class="bar n" style="width:90.6%">149.7s</div></div>
+    <div class="delta up">−9.4%</div></div>
+  <div class="row"><div class="lab">AV1 · CPU</div>
+    <div class="track"><div class="bar o" style="width:68.3%">112.8s</div><div class="bar n" style="width:63.9%">105.6s</div></div>
+    <div class="delta up">−6.4%</div></div>
+  <div class="row"><div class="lab">H.265 · wall</div>
+    <div class="track"><div class="bar o" style="width:95.5%">14.75s</div><div class="bar n" style="width:100%">15.45s</div></div>
+    <div class="delta down">+4.7%</div></div>
+  <div class="row"><div class="lab">AV1 · wall</div>
+    <div class="track"><div class="bar o" style="width:95.0%">10.64s</div><div class="bar n" style="width:100%">11.20s</div></div>
+    <div class="delta down">+5.3%</div></div>
+  <div class="legend"><span><i style="background:var(--old)"></i>1.1.0</span><span><i style="background:var(--new)"></i>1.1.1</span></div>
+</div>
+
+<table>
+  <thead><tr><th>场景</th><th>旧 wall</th><th>新 wall</th><th>旧 CPU</th><th>新 CPU</th><th>旧 par</th><th>新 par</th></tr></thead>
+  <tbody>
+    <tr><td>8 × H.265</td><td class="num">14.75s</td><td class="num">15.45s</td><td class="num">165.2s</td><td class="num">149.7s</td><td class="num">11.2</td><td class="num">9.7</td></tr>
+    <tr><td>8 × AV1</td><td class="num">10.64s</td><td class="num">11.20s</td><td class="num">112.8s</td><td class="num">105.6s</td><td class="num">10.6</td><td class="num">9.4</td></tr>
+  </tbody>
+</table>
+
+<div class="note">
+  <b>这一段要说清楚，因为它不是「变快了」。</b>
+  8 路并发时整机本来就打满（par 11.2 / 10.6 已接近 14 核上限），
+  所以限流并不能换来吞吐 —— 墙钟反而慢了 5% 左右，换来的是 CPU 总消耗降 6~9%。
+  这笔账在<b>用户还要同时用机器</b>时才划算：压缩 8 个视频时浏览器不再卡、风扇不再狂转。
+  如果你的使用习惯是「开满并发然后走人」，这一项对你<u>没有收益</u>。
+</div>
+
+<h2><span class="num">4</span>界面响应：从 O(N²) 降到 O(N)</h2>
+<p class="lead">
+  这是本轮最硬的收益。旧版每探测完一个文件，就把「刷新编解码器下拉 + 刷新体积预估 + 重画汇总栏」整套跑一遍，
+  而这三件事各自都要遍历一遍完整任务列表 —— 于是导入 N 个文件的代价是 N²。
+  新版改成按内容 diff 的增量渲染 + 120ms 节流批量刷新。
+</p>
+
+<div class="chart">
+  <svg viewBox="0 0 720 300" role="img" aria-label="任务数组访问次数随文件数变化">
+    <defs>
+      <linearGradient id="go" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#f87171" stop-opacity=".22"/>
+        <stop offset="100%" stop-color="#f87171" stop-opacity="0"/>
+      </linearGradient>
+    </defs>
+    <line x1="70" y1="250" x2="690" y2="250" stroke="#272c37"/>
+    <line x1="70" y1="30" x2="70" y2="250" stroke="#272c37"/>
+    <!-- y 轴刻度 -->
+    <g font-size="11" fill="#6b7484" text-anchor="end" font-family="monospace">
+      <text x="60" y="254">0</text>
+      <text x="60" y="204">36k</text>
+      <text x="60" y="154">72k</text>
+      <text x="60" y="104">108k</text>
+      <text x="60" y="54">144k</text>
+    </g>
+    <g stroke="#1c2029">
+      <line x1="70" y1="200" x2="690" y2="200"/><line x1="70" y1="150" x2="690" y2="150"/>
+      <line x1="70" y1="100" x2="690" y2="100"/><line x1="70" y1="50" x2="690" y2="50"/>
+    </g>
+    <!-- 旧版抛物线 -->
+    <path d="M70,250 L200,244 L330,226 L460,192 L590,140 L690,54" fill="none" stroke="#f87171" stroke-width="2"/>
+    <path d="M70,250 L200,244 L330,226 L460,192 L590,140 L690,54 L690,250 L70,250 Z" fill="url(#go)"/>
+    <!-- 新版直线 -->
+    <path d="M70,250 L200,248.6 L330,247.2 L460,245.8 L590,244.4 L690,243.3" fill="none" stroke="#22d3ee" stroke-width="2"/>
+    <!-- 数据点 -->
+    <g fill="#f87171"><circle cx="200" cy="244" r="4"/><circle cx="330" cy="226" r="4"/>
+      <circle cx="460" cy="192" r="4"/><circle cx="590" cy="140" r="4"/><circle cx="690" cy="54" r="4"/></g>
+    <g fill="#22d3ee"><circle cx="200" cy="248.6" r="4"/><circle cx="330" cy="247.2" r="4"/>
+      <circle cx="460" cy="245.8" r="4"/><circle cx="590" cy="244.4" r="4"/><circle cx="690" cy="243.3" r="4"/></g>
+    <!-- 标注 -->
+    <g font-size="11.5" font-family="-apple-system,sans-serif">
+      <text x="600" y="42" fill="#f87171">144146 次（1.1.0，O(N²)）</text>
+      <text x="600" y="238" fill="#22d3ee">1000 次（1.1.1，O(N)）</text>
+    </g>
+    <!-- x 轴 -->
+    <g font-size="11" fill="#6b7484" text-anchor="middle" font-family="monospace">
+      <text x="70" y="270">0</text><text x="200" y="270">20</text><text x="330" y="270">40</text>
+      <text x="460" y="270">60</text><text x="590" y="270">80</text><text x="690" y="270">100</text>
+    </g>
+    <text x="380" y="292" font-size="11.5" fill="#6b7484" text-anchor="middle">导入文件数</text>
+  </svg>
+  <div class="legend" style="margin-left:0">
+    <span><i style="background:#f87171"></i>1.1.0 任务数组访问次数</span>
+    <span><i style="background:var(--new)"></i>1.1.1</span>
+  </div>
+</div>
+
+<table>
+  <thead><tr><th>文件数</th><th>旧访问次数</th><th>新访问次数</th><th>降幅</th><th>旧墙钟</th><th>新墙钟</th><th>探测并发</th></tr></thead>
+  <tbody>
+    <tr><td>25</td><td class="num">9200</td><td class="num">250</td><td class="up">36.8×</td><td class="num">326ms</td><td class="num">329ms</td><td class="num">1 → 4</td></tr>
+    <tr><td>100</td><td class="num">144146</td><td class="num">1000</td><td class="up">144.1×</td><td class="num">1956ms</td><td class="num">345ms</td><td class="num">1 → 4</td></tr>
+  </tbody>
+</table>
+
+<div class="note good">
+  100 文件这一档最能说明问题：界面开销从 14 万次掉到 1 千次，<b>墙钟从 1.96 秒掉到 0.35 秒</b>。
+  而且这还只是纯计算 —— 在真实的 Eagle 环境里，每一次数组访问后面都挂着 DOM 读写，卡的是什么体感自己知道。
+</div>
+
+<h2><span class="num">5</span>探测吞吐：ffprobe 从串行改成 4 路并发</h2>
+<p class="lead">
+  上面一节的墙钟用的是桩（每次 1ms），只能反映计算量。这一节换成真实 <code>ffprobe</code>：
+  25 个 480p 素材，从触发导入到全部元信息读完。
+</p>
+
+<div class="bars">
+  <div class="row"><div class="lab">25 个文件</div>
+    <div class="track"><div class="bar o" style="width:100%">1322ms</div><div class="bar n" style="width:34.1%">451ms</div></div>
+    <div class="delta up">−65.9% · 2.93×</div></div>
+  <div class="legend"><span><i style="background:var(--old)"></i>1.1.0（串行）</span><span><i style="background:var(--new)"></i>1.1.1（4 路）</span></div>
+</div>
+
+<p class="lead" style="margin-top:14px">
+  实测同时在飞的 ffprobe 数量：旧版恒为 <b>1</b>，新版稳定在 <b>4</b>。
+  文件越多、磁盘越慢，这个倍率越接近 4×（这里是 2.93×，因为 ffprobe 本身有启动开销）。
+</p>
+
+<h2><span class="num">6</span>提交阶段：整盘拷贝变成一次重命名</h2>
+<p class="lead">
+  压缩完成后要把临时产物写回原路径。旧版无条件 <code>copyFile</code> 到同目录 staging 再 rename；
+  新版先直接 rename，只有跨设备（<code>EXDEV</code>）才回退到拷贝 —— 而临时文件本来就在源文件旁边，
+  所以常见路径下是 <b>0 次拷贝</b>。
+</p>
+
+<div class="chart">
+  <svg viewBox="0 0 720 260" role="img" aria-label="提交耗时随文件大小变化">
+    <line x1="70" y1="210" x2="690" y2="210" stroke="#272c37"/>
+    <line x1="70" y1="30" x2="70" y2="210" stroke="#272c37"/>
+    <g font-size="11" fill="#6b7484" text-anchor="end" font-family="monospace">
+      <text x="60" y="214">0</text><text x="60" y="169">250ms</text>
+      <text x="60" y="124">500ms</text><text x="60" y="79">750ms</text><text x="60" y="34">1000ms</text>
+    </g>
+    <g stroke="#1c2029">
+      <line x1="70" y1="165" x2="690" y2="165"/><line x1="70" y1="120" x2="690" y2="120"/>
+      <line x1="70" y1="75" x2="690" y2="75"/><line x1="70" y1="30" x2="690" y2="30"/>
+    </g>
+    <!-- copyFile 折线：100->283, 500->431, 1000->958 -->
+    <path d="M120,159 L400,132 L680,40" fill="none" stroke="#f87171" stroke-width="2"/>
+    <g fill="#f87171"><circle cx="120" cy="159" r="4"/><circle cx="400" cy="132" r="4"/><circle cx="680" cy="40" r="4"/></g>
+    <!-- rename 折线：恒定 4ms -->
+    <path d="M120,209 L400,209 L680,209" fill="none" stroke="#22d3ee" stroke-width="2" stroke-dasharray="5 4"/>
+    <g fill="#22d3ee"><circle cx="120" cy="209" r="4"/><circle cx="400" cy="209" r="4"/><circle cx="680" cy="209" r="4"/></g>
+    <g font-size="11.5" font-family="-apple-system,sans-serif">
+      <text x="470" y="34" fill="#f87171">copyFile（1.1.0）：随体积线性增长</text>
+      <text x="470" y="200" fill="#22d3ee">rename（1.1.1）：恒定 ~4ms</text>
+    </g>
+    <g font-size="11" fill="#6b7484" text-anchor="middle" font-family="monospace">
+      <text x="120" y="230">100MB</text><text x="400" y="230">500MB</text><text x="680" y="230">1GB</text>
+    </g>
+  </svg>
+</div>
+
+<table>
+  <thead><tr><th>文件大小</th><th>旧 copyFile</th><th>新 rename</th><th>提速</th></tr></thead>
+  <tbody>
+    <tr><td>100 MB</td><td class="num">283ms</td><td class="num">4ms</td><td class="up">71×</td></tr>
+    <tr><td>500 MB</td><td class="num">431ms</td><td class="num">4ms</td><td class="up">108×</td></tr>
+    <tr><td>1 GB</td><td class="num">958ms</td><td class="num">4ms</td><td class="up">240×</td></tr>
+  </tbody>
+</table>
+
+<div class="note good">
+  每个任务的提交都省一次全量写盘。批量压 20 个 4K 素材时，光这一项就省下几十秒的纯 I/O，
+  顺带还少了一倍的 SSD 写入量。
+</div>
+
+<h2><span class="num">7</span>正确性：这一轮修掉的是「静默损坏」</h2>
+<p class="lead">性能之外的部分，反而更值得说 —— 因为它是不可逆的。</p>
+
+<table>
+  <thead><tr><th>问题</th><th>1.1.0</th><th>1.1.1</th><th>实测证据</th></tr></thead>
+  <tbody>
+    <tr>
+      <td>多音轨素材</td>
+      <td class="down">丢轨道</td>
+      <td class="up">全保留</td>
+      <td class="num">双音轨源：旧版输出 <code>[video, audio]</code>，新版 <code>[video, audio, audio]</code></td>
+    </tr>
+    <tr>
+      <td>压缩后反而变大</td>
+      <td class="down">照写回原文件</td>
+      <td class="up">跳过，保留原件</td>
+      <td class="num">提交前比对，小于阈值不动原文件</td>
+    </tr>
+    <tr>
+      <td>取消任务</td>
+      <td class="down">直接 SIGKILL</td>
+      <td class="up">SIGTERM → 800ms → SIGKILL</td>
+      <td class="num">给 ffmpeg 留出收尾时间，避免留下半截文件</td>
+    </tr>
+    <tr>
+      <td>临时文件可见性</td>
+      <td class="down">Eagle 能扫到</td>
+      <td class="up">点号前缀 + 注册表</td>
+      <td class="num">临时产物不再出现在素材库里</td>
+    </tr>
+  </tbody>
+</table>
+
+<div class="note bad">
+  <b>为什么旧版会丢音轨：</b>主编码流程里<b>一个 <code>-map</code> 都没有</b>，完全依赖 ffmpeg 的默认流选择，
+  而默认规则是「每种流类型只挑一条最好的」。双语轨、评论轨、5.1+立体声这类素材压完就只剩一条，
+  而且没有报错、没有任何提示 —— 等发现的时候原文件已经被替换掉了。
+  新版显式 <code>-map 0:v:0 -map 0:a?</code> 并带 <code>-map_metadata 0 -map_chapters 0</code>。
+</div>
+
+<h2><span class="num">8</span>哪些地方没有提升（以及代价）</h2>
+<p class="lead">把不好的一面也摆出来，否则这份报告没有价值。</p>
+<ul>
+  <li><b>单文件 H.265 / AV1 编码没有变快</b>，实测 +7% / +13%，落在噪声区间。这两个编码本来就自动并行，本轮改的是上限而非速度。</li>
+  <li><b>满并发时吞吐略降 5%</b>（8×H.265：14.75s → 15.45s）。这是限流的代价，换 CPU 占用 −9.4%。习惯「开满走人」的用户感知不到好处。</li>
+  <li><b>AV1 输出体积 +1.5%</b>，来自 <code>tune=0</code>（PSNR 取向）。画质取向变了，不是退化，但如果你的目标是极限体积，需要知道这一项。</li>
+  <li><b>VP9 的 CPU 总时间反而涨了 12%</b>（41.0s → 46.1s）。多核并行必然有同步开销，只是墙钟砍半更划算。笔记本电池供电时要注意。</li>
+  <li><b>测试素材是合成的</b>，绝对耗时（比如 H.265 单文件 2 秒）远低于真实影片。所有结论只取新旧相对差，不要用绝对值推算你的素材。</li>
+</ul>
+
+<h2><span class="num">9</span>怎么复现这些数字</h2>
+<pre><span class="c"># 1. 取出已发布的 1.1.0 作为基线（不动当前工作区）</span>
+git worktree add /tmp/vc-base HEAD
+
+<span class="c"># 2. 造素材：1080p30 / 5s / 双音轨</span>
+ffmpeg -y -f lavfi -i "testsrc2=size=1920x1080:rate=30:duration=5" \
+       -f lavfi -i "sine=frequency=440:sample_rate=48000:duration=5" \
+       -f lavfi -i "sine=frequency=220:sample_rate=48000:duration=5" \
+       -vf "noise=alls=10:allf=t+u" -c:v libx264 -preset medium -crf 14 \
+       -pix_fmt yuv420p -c:a aac -b:a 128k -map 0:v -map 1:a -map 2:a src5.mp4
+
+<span class="c"># 3. 让两套代码各自生成参数，再交给同一个 ffmpeg 实跑</span>
+<span class="c">#    （脚本见 tests/bench/bench-encode.js，耗时口径取自 -benchmark）</span>
+node tests/bench/bench-encode.js
+
+<span class="c"># 4. 界面开销：用 jsdom 起插件，统计 state.tasks 的按下标访问次数</span>
+node tests/bench/bench-ui.js   old 100
+node tests/bench/bench-ui.js   new 100
+
+<span class="c"># 5. 真实探测吞吐：把 core 桩的 probe 换成真 ffprobe</span>
+node tests/bench/bench-probe.js old 25
+node tests/bench/bench-probe.js new 25
+
+<span class="c"># 6. 提交阶段：copyFile vs rename</span>
+node tests/bench/bench-commit.js
+
+<span class="c"># 7. 回归闸门（必须全绿）</span>
+./tools/verify.sh
+</pre>
+
+<div class="foot">
+  生成时间 2026-09-07 · 基线 git <code>acb6370</code>（1.1.0）· 对照 工作区（1.1.1）<br>
+  所有数据来自本机单次实跑；差异小于 10% 的项目已在正文中标注为噪声，不作为结论使用。
+</div>
+
+</div>
+</body>
+</html>

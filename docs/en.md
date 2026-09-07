@@ -63,6 +63,19 @@ The **Hardware acceleration** dropdown has three options:
 <!-- section:changelog -->
 ## Changelog
 
+### 1.1.1
+
+- Fixed: files with multiple audio tracks lost all but one track after compression. Every track is now kept.
+- Fixed: an output larger than the source still replaced the original. Such files are now skipped and the original left untouched.
+- Fixed: cancelling a task could leave a truncated half-written file. FFmpeg is now asked to exit cleanly before being killed.
+- Fixed: temporary files produced during compression showed up in Eagle as new items.
+- Improved: importing many files no longer stalls the interface — for 100 files the work dropped to roughly 1/144 of before.
+- Improved: reading file metadata is about 3× faster; 25 files went from 1.3 s to 0.45 s.
+- Improved: VP9 now encodes with multi-threaded tiles and rows — about 2.2× faster on 1080p footage.
+- Improved: committing the result uses a rename instead of a full copy; writing back a 1 GB file went from about 1 second to nearly nothing.
+- Improved: encoder threads are budgeted across the machine, cutting total CPU use by roughly 6–9% when several tasks run at once.
+- Added: on machines with 24 cores or more, concurrency can be set to 6 or 8.
+
 ### 1.1.0
 
 - Added GPU hardware encoding for NVIDIA NVENC, Intel Quick Sync, and AMD AMF. The new **Hardware acceleration** dropdown offers automatic, force GPU, or CPU only, and reports which family it detected.

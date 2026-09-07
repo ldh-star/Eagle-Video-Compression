@@ -21,7 +21,8 @@ Eagle 插件没有构建步骤，也没有 CI。语法错误、缺失的翻译�
 | 环境 | Node ≥ 22 | 测试用到的新 API 在旧版本上会直接报错 |
 | JSON 合法性 | `manifest.json` + 8 个语言包 | JSON 挂了 Eagle 会**拒载插件且不给任何提示** |
 | JS 语法 | `js/` `tools/` `tests/` 全部 `node --check` | Chromium 里一个语法错 = 整份脚本不执行 |
-| 回归测试 | `tests/*.js` 全部跑一遍 | 见下文 |
+| 回归测试 | `tests/*.js` 独立脚本全部跑一遍 | 见下文 |
+| 标准用例集 | `node tools/run-tests.js`：41 条带 ID 的契约用例 | FAIL = 已实现的行为被改坏；XPASS = 缺陷已修但状态没翻 |
 | 多语言 | `tools/check-i18n.js` | 见 `eagle-plugin-i18n` |
 | 版本与文档 | `tools/check-docs.js` | 见 `eagle-plugin-release` |
 | 打包卫生 | `tools/clean-workspace.sh --check`：`.DS_Store`、陈旧 git 锁、logo 体积、`sync-to-eagle.sh` 的排除项 | 开发期文件混进 `.eagleplugin` 会被审核挑出来 |
@@ -130,9 +131,80 @@ await win.App.init(win.eagle);
 
 不值得写的：真实编码耗时的端到端流程、UI 样式细节。
 
+## 标准用例集（契约测试）
+
+`tests/*.js` 那批脚本回答的是「现在的行为对不对」。但还有一批问题**现在就是错的**，且短时间内不打算改 —— 它们需要一个地方沉淀，否则每次评审都要从源码重新推一遍。
+
+用例集就是干这个的：每条用例 = 一个带 ID 的**契约**，写明「故障是什么」和「修好之后必须满足什么」。
+
+```bash
+node tools/run-tests.js                  # 跑全部
+node tools/run-tests.js --list           # 列出全部（ID / 级别 / 状态 / 标题）
+node tools/run-tests.js --only P0        # 只跑 P0（也接受 P1 / P2 / LOCK / NEW / plan / area:ui / 具体 ID）
+node tools/run-tests.js --contract P0-01 # 打印某条的完整故障描述与契约
+node tools/run-tests.js --json           # 结构化输出，同时写入 tests/.run-result.json
+node tools/run-tests.js -v               # 失败时打印堆栈
+```
+
+### 三种用例状态
+
+| status | 含义 | 通过时 | 失败时 |
+| --- | --- | --- | --- |
+| `implemented` | 已经正确的行为，防回归 | `PASS` | `FAIL` —— **红了，必须修** |
+| `xfail` | 已登记的缺陷，契约已写明 | `XPASS` —— **红了**，说明缺陷已修，逼你回来把 status 翻成 `implemented` | `KNOWN-FAIL` —— 预期内，不算红 |
+| `blocked` | 契约明确但当前测不到（内部函数没导出等） | `BLOCKED` | 同上 |
+
+XPASS 算失败是故意的：否则用例集会慢慢变成一堆没人维护的 `xfail`，失去意义。**修好一个缺陷的完整动作是：改代码 → 看到 XPASS → 把 status 翻成 `implemented` → 重跑全绿。**
+
+### 目录
+
+| 文件 | 内容 |
+| --- | --- |
+| `tests/cases/index.js` | 注册表，新增分片在这里加一行 |
+| `tests/cases/helpers.js` | 公共构件：构造 meta/settings、读参数、`skip()`、`countingArray()`、`spy()` |
+| `tests/cases/env.js` | jsdom 环境：起一个装好 `app.js` 的假 Eagle 窗口 |
+| `tests/cases/plan.js` | 编码计划与 FFmpeg 参数（18 条） |
+| `tests/cases/budget.js` | CPU / 并发资源预算（9 条） |
+| `tests/cases/commit.js` | 提交安全：体积闸门、临时文件回收、原子替换（7 条） |
+| `tests/cases/ui.js` | 界面渲染与导入期性能（7 条） |
+
+### 新增用例
+
+在对应分片里 `add({ ... })` 就行，字段：
+
+```js
+add({
+    id: 'P0-99',                 // 前缀即级别：P0 / P1 / P2 / LOCK / NEW
+    title: '一眼能看懂的一句话',
+    area: 'plan',                // 与分片一致
+    level: 'P0',
+    status: 'xfail',             // implemented / xfail / blocked
+    issue:   '故障是什么，最好带实测数据',
+    contract:'修好之后必须满足什么，写成可以断言的形式',
+    ref: 'js/ffmpeg.js buildPlan',
+    run: function () { /* 抛异常 = 失败；可以 async */ }
+});
+```
+
+写的时候三条经验：
+
+1. **`issue` 里写复现数据，不写结论。** 「这里是 O(N²)」没有说服力，「导入 25 个文件共扫了任务表 9862 次，约 16×N²」有。
+2. **`contract` 要能翻译成断言。** 写「应该更快」没法测；写「元素访问次数 ≤ 2N」可以。性能类断言用 `H.countingArray()` 数全表扫描次数，用 `H.spy(fs, 'copyFile')` 数真实 IO 次数 —— 比读源码可靠，源码改了行为没改（或反过来）时只有计数能抓到。
+3. **顺手锁住「当前正确但语义微妙」的行为**（`LOCK-*` 前缀）。修缺陷时最容易误伤它们，比如 VP9 的 `-b:v 0`、x264 线程上限 16、两遍编码保持单 worker。
+
+`id` 以 `LOCK-` 开头表示「锁定项」，`NEW-` 表示评审中新发现、还没归到原始编号体系里的问题。
+
+### 与 `tests/*.js` 怎么选
+
+- 验证**当前行为**、且是完整流程 → `tests/*.js` 独立脚本
+- 描述**待修缺陷的契约**、或需要按级别/分片筛选、或要进 CI 报告 → 用例集
+
 ## 修复失败的顺序
 
 1. **先看是不是测试自己坏了**：绝对路径失效、Node 版本、临时目录权限。
 2. **JS 语法失败**：`node --check <文件>` 会直接给出行号。
 3. **回归测试失败**：跑单个文件看完整输出，assert 的第三个参数写的就是「期望的行为」。
-4. **不要为了让测试通过而放宽断言。** 断言描述的是真实故障的复现条件，放宽等于把坑埋回去。
+4. **用例集报 XPASS**：这是好消息 —— 缺陷已修。把那条用例的 `status` 从 `xfail` 改成 `implemented` 再跑一次。
+5. **不要为了让测试通过而放宽断言。** 断言描述的是真实故障的复现条件，放宽等于把坑埋回去。
+
+> **已知环境坑**：本机这份 jsdom 冷加载要约 40s（node_modules 冷缓存），之后每个窗口只要 ~90ms。所以 `tools/run-tests.js` 是边跑边打印的，全绿一轮大约 50s，其中 4s 是真正在跑用例。看到开头停顿属正常，别以为卡死。

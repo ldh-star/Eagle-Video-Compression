@@ -61,7 +61,10 @@
             hw: {
                 nvenc: { encoder: 'h264_nvenc', tenBit: false },
                 qsv: { encoder: 'h264_qsv', tenBit: false },
-                amf: { encoder: 'h264_amf', tenBit: false }
+                amf: { encoder: 'h264_amf', tenBit: false },
+                // H.264 的 10-bit（High10）在 Apple 的解码器上兼容性很差，
+                // 和软件编码器一样统一降到 8-bit。
+                videotoolbox: { encoder: 'h264_videotoolbox', tenBit: false }
             }
         },
         h265: {
@@ -79,7 +82,8 @@
             hw: {
                 nvenc: { encoder: 'hevc_nvenc', tenBit: true, tenBitPixFmt: 'p010le' },
                 qsv: { encoder: 'hevc_qsv', tenBit: true, tenBitPixFmt: 'p010le' },
-                amf: { encoder: 'hevc_amf', tenBit: true, tenBitPixFmt: 'p010le' }
+                amf: { encoder: 'hevc_amf', tenBit: true, tenBitPixFmt: 'p010le' },
+                videotoolbox: { encoder: 'hevc_videotoolbox', tenBit: true, tenBitPixFmt: 'p010le' }
             }
         },
         av1: {
@@ -110,7 +114,11 @@
             twoPass: false,
             tenBit: true,
             speeds: ['5', '4', '2', '1', '0'],
-            speedArgs: function (v) { return ['-deadline', v === '0' ? 'best' : 'good', '-cpu-used', v]; },
+            // 并行参数是按下来的片源宽度算的，不是固定值 —— 见 vp9ParallelArgs。
+            speedArgs: function (v, meta) {
+                return ['-deadline', v === '0' ? 'best' : 'good', '-cpu-used', v]
+                    .concat(vp9ParallelArgs(meta && meta.video && meta.video.width));
+            },
             // VP9 没有 NVENC / AMF 实现，QSV 的 vp9_qsv 又极少在消费机上可用，
             // 干脆不列 —— 走了 CPU 也比给一个多数人跑不通的命令好。
             hwQpScale: null,
@@ -141,12 +149,18 @@
      * 一台机器理论上可能同时有核显和独显（QSV + NVENC 同时可用），
      * 独显的编码质量和吞吐通常更好，所以 NVENC 排第一。
      */
-    var HW_FAMILY_ORDER = ['nvenc', 'qsv', 'amf'];
+    // videotoolbox 排在最后不是因为它差，而是因为这三家在 macOS 上根本不存在：
+    // NVENC / QSV / AMF 的编码器名永远不会出现在一台 Mac 的 -encoders 输出里，
+    // 所以顺序不会影响 Windows / Linux 上的任何行为。反过来，Apple 平台只有
+    // VT 一家可用 —— 少了它，Mac 用户看到的永远是「未检测到硬件编码」，
+    // 全部任务走 CPU。
+    var HW_FAMILY_ORDER = ['nvenc', 'qsv', 'amf', 'videotoolbox'];
 
     var HW_FAMILY_LABEL = {
         nvenc: 'NVIDIA NVENC',
         qsv: 'Intel Quick Sync',
-        amf: 'AMD AMF'
+        amf: 'AMD AMF',
+        videotoolbox: 'Apple VideoToolbox'
     };
 
     /**
@@ -161,7 +175,7 @@
      * filter 'Parsed_null_0' and the filter 'auto_scale_0'"，整条命令报废。
      * 所以这里只用不带 output_format 的形式，让帧解码后回到系统内存。
      */
-    var HW_DECODE_METHOD = { nvenc: 'cuda' };
+    var HW_DECODE_METHOD = { nvenc: 'cuda', videotoolbox: 'videotoolbox' };
 
     /**
      * NVENC 的速度档位。索引与 CODECS.speeds 对齐（0 最快 → 4 最慢）。
@@ -246,6 +260,40 @@
         return (ext === '.webm' || ext === '.ogv') ? 'libopus' : 'aac';
     }
 
+    // 各容器「重编码后想得到的音频编码」对应的 ffprobe codec_name。
+    // 用来判断源音轨能不能直接直通 —— WebM 里塞 AAC 是行不通的。
+    var AUDIO_TARGET_CODEC = { aac: 'aac', libopus: 'opus' };
+
+    /**
+     * 源音轨能不能原样带走。
+     *
+     * 无条件 `-c:a aac -b:a 128k` 的问题：源本来就是 128k AAC 时也要重压一遍。
+     * 有损编码再压一次是纯亏 —— 音质必然更差，耗时却一分不少。
+     *
+     * 直通的两个条件（缺一不可）：
+     *   1. 编码格式就是本容器想要的那个（aac for MP4 / opus for WebM）
+     *   2. 源码率不高于目标码率 × 1.1（10% 的余量是给探测误差留的，
+     *      免得源 129k、目标 128k 这种临界值反复横跳）
+     *
+     * 源码率探测不到时不敢直通：VBR 音轨的标称码率经常缺失，直通等于把
+     * 「压缩」这件事整个跳过，用户会拿到一个体积没变的文件却不知道为什么。
+     *
+     * @param {object} settings 需要 audioBitrate（kbps）
+     */
+    function shouldCopyAudio(meta, settings, ext) {
+        if (!meta.audio) return false;
+        var target = AUDIO_TARGET_CODEC[resolveAudioEncoder(ext)];
+        var src = String((meta.audio && meta.audio.codec) || '').toLowerCase();
+        if (!target || src !== target) return false;
+
+        var srcBps = Number(meta.audio.bitrate) || 0;
+        if (!isFinite(srcBps) || srcBps <= 0) return false;
+
+        var targetBps = Number(settings.audioBitrate) * 1000;
+        if (!isFinite(targetBps) || targetBps <= 0) return false;
+        return srcBps <= targetBps * 1.1;
+    }
+
     /**
      * 编码前预检：目标编码能否写进原容器。
      * @returns {{ok:boolean, reason?:string, suggestion?:string}}
@@ -276,7 +324,23 @@
 
     // 临时文件命名前缀。runTask 里生成的中间产物都用它开头，
     // 便于启动时统一回收上次异常退出留下的垃圾。
-    var TEMP_PREFIXES = ['eagle-vc-out-', 'eagle-vc-pass-', 'eagle-vc-sample-'];
+    //
+    // 【前面的点不是装饰】临时产物为了同卷 rename 会写进**源文件所在目录**，
+    // 而那个目录通常就是 Eagle 的素材库目录 —— Eagle 的目录监听会把普通文件名
+    // 当成新素材导入，用户压一次片库里就多一个半成品。以 . 开头的文件被
+    // Eagle（以及 Spotlight / 大多数同步工具）当作隐藏文件忽略。
+    // 旧的三个不带点的前缀仍然保留在清理列表里，用于回收升级前留下的垃圾。
+    var TEMP_PREFIXES = [
+        '.eagle-vc-out-', '.eagle-vc-pass-', '.eagle-vc-sample-',
+        'eagle-vc-out-', 'eagle-vc-pass-', 'eagle-vc-sample-'
+    ];
+
+    /** runTask 拼接临时路径时用：只取带点的那三个。 */
+    var TEMP_NAME_PREFIXES = {
+        out: '.eagle-vc-out-',
+        pass: '.eagle-vc-pass-',
+        sample: '.eagle-vc-sample-'
+    };
 
     // FFmpeg 在异常素材上可能持续输出错误信息；只需要最后几行诊断，不需要
     // 把完整 stderr 永久留在内存。64 KB 足够保留多个错误上下文，也不会让
@@ -284,6 +348,10 @@
     var STDERR_TAIL_LIMIT = 64 * 1024;
 
     var STALE_AGE_MS = 6 * 60 * 60 * 1000;   // 6 小时
+
+    // 取消时先发 SIGTERM 让 ffmpeg 自己收尾，等这么久还不退再补 SIGKILL。
+    // 太短等于还是 SIGKILL（收尾来不及做），太长则用户点完取消界面迟迟不响应。
+    var GRACEFUL_KILL_TIMEOUT_MS = 800;
 
     /**
      * 截取文本尾部。错误通常在最后输出，所以丢前面、留最后面。
@@ -296,14 +364,32 @@
     }
 
     /**
+     * 临时产物实际落过的目录。
+     *
+     * preferredTempDir 会把临时文件放进**源目录**（为了同卷 rename），
+     * 而启动时的清理如果只扫 os.tmpdir()，那些文件就永远没人回收 ——
+     * 进程被硬杀后一个几 GB 的半成品会永久躺在素材库里。
+     * 这里记下所有真的写过东西的目录，purgeStaleTemp 默认一并扫。
+     */
+    var tempDirRegistry = Object.create(null);
+
+    /** 记录一个「临时产物会落到这里」的目录。重复记录无害。 */
+    function noteTempDir(dir) {
+        if (dir) tempDirRegistry[dir] = true;
+    }
+
+    /**
      * 在源文件目录可写时，同卷写临时产物：之后覆盖原文件不需要跨卷复制。
      * 无权限、网络盘异常或路径不可解析时，安全回退系统临时目录。
+     *
+     * 返回值会自动记进 tempDirRegistry，让启动清理能覆盖到它。
      */
     function preferredTempDir(sourcePath) {
         var dir = path.dirname(sourcePath || '');
         try {
             if (dir && fs && fs.existsSync(dir)) {
                 fs.accessSync(dir, fs.constants ? fs.constants.W_OK : fs.W_OK);
+                noteTempDir(dir);
                 return dir;
             }
         } catch (e) {}
@@ -311,10 +397,26 @@
     }
 
     /**
-     * 根据编码负载与可用 CPU 核数给出安全的实际 worker 数。
-     * concurrency 仍是用户上限：用户选择 1 时绝不会被抬高；高负载编码器则
-     * 适当收敛，避免多个自带多线程的 FFmpeg 进程互相抢满全部核心。
+     * 全局 worker 上限。
+     *
+     * 4 是长期默认值，在 24 核以上的机器上压一堆 720p 小片时明显喂不饱
+     * （每个 worker 按 cores/workers 均分线程，4 路时每路也才 6~8 线程，
+     * 而 x265 在 720p 上远没到扩展性拐点）。所以核数够多时放开到 8。
      */
+    var MAX_WORKERS = 8;
+
+    /** 放开到 MAX_WORKERS 所需的最小核数。低于这个值维持 4，避免小机器上进程切换吃掉收益。 */
+    var MAX_WORKERS_MIN_CORES = 24;
+
+    /**
+     * AV1 允许开多路并发的分辨率门槛。
+     *
+     * SVT-AV1 的并行度是按 tile / 帧级任务切的：4K 片源单个进程就能吃满
+     * 十几核，再开第二路纯属互抢；720p 这种小分辨率单进程只能跑到 5~6 核
+     * （实测 "Level of Parallelism" 恒定 5），剩下的核心就闲置了。
+     */
+    var AV1_MULTI_WORKER_MAX_HEIGHT = 1080;
+
     /**
      * 根据编码负载与可用 CPU 核数给出安全的实际 worker 数。
      * concurrency 仍是用户上限：用户选择 1 时绝不会被抬高；高负载编码器则
@@ -323,17 +425,32 @@
      * @param {string} [hwKind] 本次使用的编码器家族（'cpu' / 'nvenc' / …）。
      *                 硬件编码要额外收敛：GPU 的吞吐不会随进程数线性增长，
      *                 见 HW_MAX_WORKERS 处的实测数据。
+     * @param {object} [meta]  代表性片源的探测结果。目前只有 AV1 用它看分辨率。
+     *                 队列里分辨率不一致时，调用方应传最高的那个（更保守）。
      */
-    function recommendedWorkerCount(settings, cpuCount, taskCount, hwKind) {
+    function recommendedWorkerCount(settings, cpuCount, taskCount, hwKind, meta) {
         settings = settings || {};
-        var requested = Math.max(1, Math.min(4, Number(settings.concurrency) || 1));
         var cores = Math.max(1, Number(cpuCount) || 1);
         var tasks = Math.max(1, Number(taskCount) || 1);
+
+        // 用户上限：核数不够多时保持旧的 4 路天花板。
+        var ceiling = cores >= MAX_WORKERS_MIN_CORES ? MAX_WORKERS : 4;
+        var requested = Math.max(1, Math.min(ceiling, Number(settings.concurrency) || 1));
         var cap;
 
-        // AV1 与目标大小的两遍编码都属于高 CPU / 长任务，默认单 worker。
-        if (settings.codec === 'av1' || settings.mode === 'target') cap = 1;
-        else cap = Math.max(1, Math.min(4, Math.floor(cores / 4)));
+        // 两遍编码属于高 CPU / 长任务，且每个 worker 要维护一份 passlog，
+        // 两遍之间还有顺序依赖 —— 并发收益远小于内存与精度代价，恒为单路。
+        if (settings.mode === 'target') {
+            cap = 1;
+        } else if (settings.codec === 'av1') {
+            var h = meta && meta.video ? Number(meta.video.height) : 0;
+            // 拿不到分辨率时按最保守的 1 路处理。
+            cap = (h > 0 && h < AV1_MULTI_WORKER_MAX_HEIGHT && cores >= 12)
+                ? Math.max(2, Math.min(3, Math.floor(cores / 6)))
+                : 1;
+        } else {
+            cap = Math.max(1, Math.min(MAX_WORKERS, Math.floor(cores / 4)));
+        }
 
         if (isHardwareEncoder({ kind: hwKind })) cap = Math.min(cap, HW_MAX_WORKERS);
 
@@ -341,13 +458,30 @@
     }
 
     /**
-     * 把总核心数分给实际 worker；只由运行时计划使用，不写回用户设置。
-     * 留一个核心给 Eagle/UI，单 worker 时最多给 8 线程，避免极端机器上失控。
+     * 各编码器的线程上限。0 = 不额外限制（只受核心数约束）。
+     *
+     * x264 的 16 是实测得出的：超过 16 线程后加速比明显衰减，而且更多的
+     * frame-threads 会让码率控制拿到「未来帧」更晚，同码率下画质轻微下降。
+     *
+     * x265 / SVT-AV1 / VP9 没有这个拐点 —— 它们的 WPP / tile 并行本来就是
+     * 为多核设计的，一路 4K x265 在 24 核上能吃满 23 个核，砍到 8 等于
+     * 直接扔掉一半算力。
      */
-    function recommendedThreadCount(cpuCount, workerCount) {
+    var THREAD_CAP = { h264: 16 };
+
+    /**
+     * 把总核心数分给实际 worker；只由运行时计划使用，不写回用户设置。
+     * 留一个核心给 Eagle/UI，再按编码器各自的上限收敛（见 THREAD_CAP）。
+     *
+     * @param {string} [codecId] 目标编码。省略时不施加编码器上限，
+     *                 只按核心数均分（多 worker / 未知编码时用）。
+     */
+    function recommendedThreadCount(cpuCount, workerCount, codecId) {
         var cores = Math.max(1, Number(cpuCount) || 1);
         var workers = Math.max(1, Number(workerCount) || 1);
-        return Math.max(1, Math.min(8, Math.floor(Math.max(1, cores - 1) / workers)));
+        var n = Math.max(1, Math.floor(Math.max(1, cores - 1) / workers));
+        var cap = THREAD_CAP[codecId] || 0;
+        return cap > 0 ? Math.max(1, Math.min(cap, n)) : n;
     }
 
     // 探测 FFmpeg 时等待 Eagle 依赖插件响应的上限。
@@ -363,28 +497,52 @@
      *
      * 只清理 6 小时以前的，避免误删另一个插件窗口正在写入的文件。
      *
+     * @param {string[]} [dirs] 要扫的目录；省略时扫系统临时目录 + 本次会话
+     *                          实际写过临时产物的目录（见 tempDirRegistry）。
      * @returns {number} 清理掉的文件数
      */
-    function purgeStaleTemp() {
-        var dir = os.tmpdir();
+    function purgeStaleTemp(dirs) {
+        var targets = (dirs && dirs.length) ? dirs : [os.tmpdir()].concat(Object.keys(tempDirRegistry));
         var now = Date.now();
         var removed = 0;
 
-        try {
-            fs.readdirSync(dir).forEach(function (name) {
-                var hit = TEMP_PREFIXES.some(function (p) { return name.indexOf(p) === 0; });
-                if (!hit) return;
-                var full = path.join(dir, name);
-                try {
-                    var st = fs.statSync(full);
-                    if (now - st.mtimeMs < STALE_AGE_MS) return;
-                    fs.unlinkSync(full);
-                    removed++;
-                } catch (e) { /* 文件可能已被删或正被占用，跳过 */ }
-            });
-        } catch (e) { /* 读不了临时目录就算了，不该因此阻断启动 */ }
+        targets.forEach(function (dir) {
+            if (!dir) return;
+            try {
+                fs.readdirSync(dir).forEach(function (name) {
+                    var hit = TEMP_PREFIXES.some(function (p) { return name.indexOf(p) === 0; });
+                    if (!hit) return;
+                    var full = path.join(dir, name);
+                    try {
+                        var st = fs.statSync(full);
+                        if (now - st.mtimeMs < STALE_AGE_MS) return;
+                        fs.unlinkSync(full);
+                        removed++;
+                    } catch (e) { /* 文件可能已被删或正被占用，跳过 */ }
+                });
+            } catch (e) { /* 读不了这个目录就算了，不该因此阻断启动 */ }
+        });
 
         return removed;
+    }
+
+    /**
+     * 体积闸门：产物没有明显变小就不要替换原文件。
+     *
+     * 抽成纯函数是因为这是「不可逆操作之前的那道判断」，必须能单测。
+     * 判据用「小 2%」而不是「更小」：只小几十 KB 的替换毫无意义，
+     * 却要付出一次覆盖风险 + 一次有损重编码。
+     *
+     * @returns {boolean} true = 值得提交
+     */
+    var COMMIT_MIN_RATIO = 0.98;
+    function shouldCommit(outputSize, sourceSize) {
+        var src = Number(sourceSize);
+        var out = Number(outputSize);
+        // 源大小未知时不做判断，交给调用方按「产物非空」处理
+        if (!isFinite(src) || src <= 0) return isFinite(out) && out > 0;
+        if (!isFinite(out) || out <= 0) return false;
+        return out < src * COMMIT_MIN_RATIO;
     }
 
     // ---------------------------------------------------------------------
@@ -739,6 +897,40 @@
     }
 
     /**
+     * VideoToolbox 的 CRF → `-q:v` 换算。
+     *
+     * 【方向和所有其他编码器相反，别照抄 crfToHwQp】VT 的 -q:v 是 1~100 且
+     * **越大画质越好**，而 CRF / QP 是越小越好。套用 NVENC 的刻度会得到
+     * 一个几乎反向的结果：crf 51（最差）会被算成最好的画质。
+     *
+     * 系数 1.7 来自本机实测的率失真曲线（1080p / 20s / testsrc2）：
+     *   q=40 → 4.57MB   q=50 → 8.30MB   q=55 → 14.71MB   q=60 → 17.46MB
+     * 而 x265 -crf 28 是 11.32MB，插值得到对齐点 q ≈ 52.4，
+     * 反解出 100 - 28 × 1.7 = 52.4。
+     *
+     * 【这个系数必须在真实素材上复标一次】testsrc2 是合成素材，率失真曲线
+     * 和真片差得远 —— 真片通常细节更多、x265 的 CRF 曲线更陡，同样 CRF 下
+     * 需要的 q 会偏低。这里的 1.7 只能当起点。
+     */
+    var VT_QUALITY_SCALE = 1.7;
+    function crfToVtQuality(crf, codecId) {
+        var codec = CODECS[codecId] || CODECS.h265;
+        var base = isFinite(crf) ? crf : (codec.crf ? codec.crf.def : 28);
+        var q = Math.round(100 - base * VT_QUALITY_SCALE);
+        return Math.max(1, Math.min(100, q));
+    }
+
+    /**
+     * 按家族把 CRF 翻译成该家族的「恒定画质」参数。
+     *
+     * 抽出来是因为 VT 那一家不是换个系数的问题，而是**方向相反**，
+     * 混用会让整个画质档位倒过来。
+     */
+    function crfToHwQuality(crf, codecId, kind) {
+        return kind === 'videotoolbox' ? crfToVtQuality(crf, codecId) : crfToHwQp(crf, codecId);
+    }
+
+    /**
      * 输入侧的硬件解码参数。
      *
      * 【必须放在 -i 之前】`-hwaccel` 是输入选项，写在 -i 后面会直接报
@@ -978,10 +1170,25 @@
         var format = raw.format || {};
         var streams = raw.streams || [];
         var video = null, audio = null;
+        // 【track 计数不能省】ffmpeg 的默认流选择是「每类只留一路」，
+        // 双音轨源压完会静默掉一条。只留第一条音轨的写法让这个故障
+        // 在探测阶段就变成不可见的了 —— 上层既没法提醒，也没法校验产物。
+        var counts = { video: 0, audio: 0, subtitle: 0 };
+        var subtitleCodecs = [];
         for (var i = 0; i < streams.length; i++) {
             var s = streams[i];
-            if (s.codec_type === 'video' && !video && !(s.disposition && s.disposition.attached_pic)) video = s;
-            else if (s.codec_type === 'audio' && !audio) audio = s;
+            if (s.codec_type === 'video') {
+                // 封面（attached_pic）不是正片，既不当主视频流也不计入
+                if (s.disposition && s.disposition.attached_pic) continue;
+                if (!video) video = s;
+                counts.video++;
+            } else if (s.codec_type === 'audio') {
+                if (!audio) audio = s;
+                counts.audio++;
+            } else if (s.codec_type === 'subtitle') {
+                counts.subtitle++;
+                subtitleCodecs.push(s.codec_name || '');
+            }
         }
 
         var duration = parseFloat(format.duration);
@@ -1005,6 +1212,10 @@
             path: filePath,
             duration: duration,
             size: size,
+            // 各类流的数量。buildPlan 靠它决定字幕能不能留，verifyOutput 靠它
+            // 判断产物有没有丢轨 —— 两者都是「覆盖原文件前」的保险。
+            tracks: counts,
+            subtitleCodecs: subtitleCodecs,
             // 容器 tag。压缩标记就存在这里，UI 也靠它显示「此文件压过几次」。
             tags: tags,
             compression: parseCompressionMarker(tags),
@@ -1049,7 +1260,14 @@
     function probe(binaries, filePath) {
         return new Promise(function (resolve, reject) {
             var statSize = NaN;
-            try { statSize = fs.statSync(filePath).size; } catch (e) {}
+            var statMtime = 0;
+            try {
+                var st = fs.statSync(filePath);
+                statSize = st.size;
+                // mtime 顺手在这里取走：采样预估的缓存键要它，而渲染线程上任何
+                // 一次同步 stat 都会卡住界面（网络盘 / 移动硬盘上可以是几百毫秒）。
+                statMtime = st.mtimeMs || 0;
+            } catch (e) {}
 
             var args = [
                 '-v', 'error',
@@ -1078,7 +1296,11 @@
                 if (!parsed.streams || !parsed.streams.some(function (s) { return s.codec_type === 'video'; })) {
                     return reject(new Error('该文件没有视频流，已跳过'));
                 }
-                resolve(normalizeProbe(parsed, filePath, statSize));
+                var meta = normalizeProbe(parsed, filePath, statSize);
+                // 只有真实探测才会带上 mtime；手工构造的 meta（测试 / 回退路径）
+                // 没有这个字段时，采样缓存键退化为「路径 + 体积 + 参数」。
+                meta.mtimeMs = statMtime;
+                resolve(meta);
             });
         });
     }
@@ -1183,6 +1405,71 @@
         return vf;
     }
 
+    // ---------------------------------------------------------------------
+    // 参数拼接小工具
+    // ---------------------------------------------------------------------
+    /**
+     * 往 x265 / SVT-AV1 的私有参数串里追加一段。
+     *
+     * 这两家都把一堆设置塞进一个开关（`-x265-params a=1:b=2`，冒号分隔）。
+     * 不能直接再 push 一个同名开关：ffmpeg 只认最后一个，先出现的那个会被
+     * 静默丢掉 —— 于是「限线程池」「调质量」「关慢速首遍」里总有一个不生效，
+     * 而且从命令行上完全看不出来。
+     */
+    function appendPrivateParams(args, flag, extra) {
+        var i = args.indexOf(flag);
+        if (i === -1) return args.concat([flag, extra]);
+        if (String(args[i + 1]).indexOf(extra) !== -1) return args;
+        var next = args.slice();
+        next[i + 1] = args[i + 1] + ':' + extra;
+        return next;
+    }
+
+    /** 替换（或补上）`-preset` 的取值。两遍编码给两遍降档时用。 */
+    function withPreset(args, value) {
+        var i = args.indexOf('-preset');
+        if (i === -1) return args.concat(['-preset', value]);
+        var next = args.slice();
+        next[i + 1] = value;
+        return next;
+    }
+
+    /**
+     * 两遍编码里第一遍该用哪个速度档。
+     *
+     * 第一遍的目的只是给第二遍收集统计信息，画质档位拉满纯属浪费：
+     * x264 内部有 turbo 兜底（会自己关掉一部分昂贵工具），x265 没有
+     * （默认 slow-firstpass=1），所以 -preset veryslow 的目标大小模式
+     * 实际是把全片按最慢档编了两遍。
+     *
+     * 降两档是在「统计信息够用」和「省时间」之间取的点：降太多会让第二遍
+     * 的码率控制失准，目标大小就守不住。已经是最快档时保持不变。
+     */
+    function pass1SpeedIndex(codec, settings) {
+        if (!codec.speeds || !codec.speeds.length) return -1;
+        var i = isFinite(settings.speedIndex) ? settings.speedIndex : 2;
+        i = Math.max(0, Math.min(codec.speeds.length - 1, i));
+        return i - 2;
+    }
+
+    /**
+     * VP9 的行级多线程与 tile 划分。
+     *
+     * 实测（1080p / 6s / -cpu-used 4）：不开 row-mt 是 4.05s，加上
+     * -row-mt 1 -tile-columns 2 后 2.41s（1.68×）。原因是不开 row-mt 时
+     * 并行度被 tile 数卡死，1080p 默认 tile-columns=0，等于把多核机器当
+     * 单核用。
+     *
+     * 列数按宽度给：列数太少 row-mt 也并行不起来，太多则每块的预测范围被
+     * 切断、压缩率下降。4K 及以上给 3（8 列），1080p 级给 2（4 列），
+     * 小分辨率给 1。
+     */
+    function vp9ParallelArgs(width) {
+        var w = Number(width) || 0;
+        var cols = w >= 3000 ? 3 : (w >= 1200 ? 2 : 1);
+        return ['-row-mt', '1', '-tile-columns', String(cols)];
+    }
+
     /**
      * 硬件编码器的「恒定画质」参数。
      *
@@ -1195,7 +1482,8 @@
     var HW_QUALITY_ARGS = {
         nvenc: function (qp) { return ['-rc', 'constqp', '-qp', String(qp)]; },
         qsv: function (qp) { return ['-global_quality', String(qp)]; },
-        amf: function (qp) { return ['-rc', 'cqp', '-qp_i', String(qp), '-qp_p', String(qp)]; }
+        amf: function (qp) { return ['-rc', 'cqp', '-qp_i', String(qp), '-qp_p', String(qp)]; },
+        videotoolbox: function (q) { return ['-q:v', String(q)]; }
     };
 
     /**
@@ -1227,6 +1515,11 @@
             var hwBd = (meta.video && meta.video.bitDepth) || 8;
             if (hwBd >= 10 && enc.hw && enc.hw.tenBit) {
                 args.push('-pix_fmt', enc.hw.tenBitPixFmt || 'p010le');
+                // VideoToolbox 不会由 p010le 自己推出 Main10：不给这一句它会按
+                // Main 去编 10-bit 流，产物在 Apple 自家的解码器上直接打不开。
+                if (enc.kind === 'videotoolbox' && codec.id === 'h265') {
+                    args.push('-profile:v', 'main10');
+                }
             } else {
                 args.push('-pix_fmt', 'yuv420p');
             }
@@ -1234,7 +1527,7 @@
             if (settings.mode === 'crf') {
                 var crf = isFinite(settings.crf) ? settings.crf : codec.crf.def;
                 var builder = HW_QUALITY_ARGS[enc.kind];
-                args = args.concat(builder ? builder(crfToHwQp(crf, codec.id)) : []);
+                args = args.concat(builder ? builder(crfToHwQuality(crf, codec.id, enc.kind)) : []);
             } else {
                 var hwKbps = settings.mode === 'bitrate'
                     ? settings.videoBitrate
@@ -1251,13 +1544,40 @@
 
         // worker 数已按整机预算收敛；这里再给每个编码器明确线程上限，
         // 防止 x264/x265/AV1 默认自动吃满全部核心，导致多任务反而更慢。
+        //
+        // runtimeThreads 由 app.js 在每轮运行前算好写进 settings。万一缺失
+        // （直接调用 buildPlan、或老版本调用方）也不能放任不限流，退化成
+        // 「单 worker 时这台机器的推荐线程数」。
         var threads = parseInt(settings.runtimeThreads, 10);
-        if (isFinite(threads) && threads > 0) args.push('-threads', String(threads));
+        if (!isFinite(threads) || threads <= 0) {
+            threads = recommendedThreadCount(os.cpus().length, 1, codec.id);
+        }
+        args.push('-threads', String(threads));
+
+        // -threads 对这两个编码器形同虚设，必须走各自的私有参数：
+        //   · libx265  实测 -threads 2 时日志仍是 "Thread pool created using
+        //     14 threads"；换成 -x265-params pools=2 才真的变成 2 线程
+        //     （耗时 6.05s → 17.4s，反证此前一直在吃满）。
+        //   · libsvtav1 的 "Level of Parallelism" 恒定 5，完全不读 -threads，
+        //     要 -svtav1-params lp=N 才收得住（见 P1-06b）。
+        // 只有最后一次出现的 -x265-params / -svtav1-params 生效，所以这里
+        // 用 appendPrivateParams 合并进同一个冒号分隔串，不能各推一份。
+        if (codec.id === 'h265') {
+            args = appendPrivateParams(args, '-x265-params', 'pools=' + threads);
+        } else if (codec.id === 'av1') {
+            args = appendPrivateParams(args, '-svtav1-params', 'lp=' + threads);
+        }
 
         if (codec.speeds) {
             var speed = codec.speeds[settings.speedIndex] || codec.speeds[2];
-            args = args.concat(codec.speedArgs(speed));
+            args = args.concat(codec.speedArgs(speed, meta, settings));
         }
+
+        // SVT-AV1 默认 tune=1（PSNR 调优）。PSNR 高不等于看着好 —— 它倾向于
+        // 保留数值误差最小的块，代价是抹掉细节和纹理。本插件的目标是
+        // 「肉眼差不多、体积明显小」，所以显式切到 tune=0（主观视觉质量）。
+        // 实测日志里能看到默认值：SVT [config]: preset / tune / pred struct : 8 / PSNR / random access
+        if (codec.id === 'av1') args = appendPrivateParams(args, '-svtav1-params', 'tune=0');
 
         // 像素格式 / 位深：10-bit 片源在支持 10-bit 的编码器上保留，否则统一降到 8-bit
         var bd = (meta.video && meta.video.bitDepth) || 8;
@@ -1275,10 +1595,11 @@
                 ? settings.videoBitrate
                 : calcTargetVideoKbps(meta, settings).kbps;
             args.push('-b:v', kbps + 'k');
-            if (settings.mode === 'target' && codec.id === 'x264') {
-                // 单遍码率模式下给 x264 一个合理上限，避免峰值失控
-                args.push('-maxrate', Math.round(kbps * 1.5) + 'k', '-bufsize', (kbps * 2) + 'k');
-            }
+            // VBR 的瞬时峰值会冲得很高，给个上限避免网络播放时卡顿。
+            // 注意条件不是 codec.id === 'x264'（那个 id 根本不存在，永远是
+            // 'h264'，这个分支从来没执行过 —— 见 P0-04）：所有非 CRF 模式都要给。
+            // CRF 模式则必须保持干净，否则恒定画质会退化成受限 VBR。
+            args.push('-maxrate', Math.round(kbps * 1.5) + 'k', '-bufsize', (kbps * 2) + 'k');
         }
 
         // H.264 / H.265 通用兼容性：主线程 profile
@@ -1322,6 +1643,83 @@
     function containerCompatibilityArgs(ext, codec, meta) {
         if (HVC1_CONTAINERS.indexOf(ext) === -1) return [];
         return outputIsHevc(codec, meta) ? ['-tag:v', 'hvc1'] : [];
+    }
+
+    // 走 QuickTime/MP4 sample entry 体系的容器：字幕只吃文本（mov_text），
+    // 也不接受附件流。位图字幕（PGS / DVD）硬塞进去会让整条命令失败。
+    var MP4_FAMILY = ['.mp4', '.mov', '.m4v', '.3gp'];
+
+    // Matroska 系：字幕与附件（.ass 依赖的字体）都能原样带走。
+    var MATROSKA_FAMILY = ['.mkv', '.webm'];
+
+    // 能被转成 mov_text 的文本字幕。位图类一律不在此列。
+    var TEXT_SUBTITLE_CODECS = [
+        'subrip', 'srt', 'ass', 'ssa', 'mov_text', 'webvtt', 'text',
+        'subviewer', 'microdvd', 'realtext', 'vplayer', 'pjs', 'mpl2', 'jacosub', 'sami'
+    ];
+
+    function isTextSubtitle(name) {
+        return TEXT_SUBTITLE_CODECS.indexOf(String(name || '').toLowerCase()) !== -1;
+    }
+
+    /**
+     * 本次输出对字幕的处理方式。
+     *
+     * 难点在于「产物要覆盖原文件」，输出容器被源扩展名钉死了，于是
+     * 「源字幕能不能进这个容器」必须由我们来判，不能交给 ffmpeg 默认行为。
+     *
+     * @returns {{mode:string, kept:number}} mode: copy / mov_text / drop / none
+     *          kept 是预期保留下来的字幕条数（verifyOutput 用它做校验门槛）
+     */
+    function subtitlePlan(ext, meta) {
+        var tracks = (meta && meta.tracks) || {};
+        var count = Number(tracks.subtitle) || 0;
+        var codecs = (meta && meta.subtitleCodecs) || [];
+        // 字幕 codec 没探测到时按「可能有问题」处理：宁可丢字幕也不要让
+        // 整条命令在 mux 阶段失败（失败即整个任务报废，丢字幕只是少一条轨道）。
+        var knownText = count > 0 && codecs.length > 0 && codecs.every(isTextSubtitle);
+
+        if (MP4_FAMILY.indexOf(ext) !== -1) {
+            if (count > 0 && knownText) return { mode: 'mov_text', kept: count };
+            return { mode: count > 0 ? 'drop' : 'none', kept: 0 };
+        }
+        if (MATROSKA_FAMILY.indexOf(ext) !== -1) {
+            return { mode: count > 0 ? 'copy' : 'none', kept: count };
+        }
+        // 其余容器（avi / ts / wmv …）只敢原样复制文本字幕
+        if (count > 0 && knownText) return { mode: 'copy', kept: count };
+        return { mode: count > 0 ? 'drop' : 'none', kept: 0 };
+    }
+
+    /**
+     * 显式流映射。
+     *
+     * 【不加这一组参数的后果是静默丢素材】FFmpeg 的默认流选择是「每类只挑一路」：
+     * 双音轨 + 内挂字幕的源压完只剩一条音轨，退出码依然是 0，没有任何警告。
+     * 而产物接下来要覆盖原文件 —— 这等于不可逆地删掉了用户的素材。
+     *
+     * 0:a? / 0:s? 的问号是刻意的：源没有这类流时该映射变成 no-op，
+     * 而不是让整条命令失败。
+     */
+    function streamMapArgs(ext, meta, settings) {
+        var sub = subtitlePlan(ext, meta);
+        var args = ['-map', '0:v:0'];
+
+        if (settings.audioMode !== 'none' && meta.audio) args.push('-map', '0:a?');
+
+        // 字幕塞不进目标容器时主动丢弃（-sn），比让 mux 阶段报错好：
+        // 前者只是少一条轨道，后者是整个任务报废。
+        if (sub.mode === 'drop') args.push('-sn');
+        else if (sub.mode === 'mov_text') args.push('-map', '0:s?', '-c:s', 'mov_text');
+        else args.push('-map', '0:s?', '-c:s', 'copy');
+
+        // 字体附件：外挂 .ass 依赖它，漏掉会导致字幕渲染成方块。
+        // 只有 Matroska 系能装附件流，MP4 加了会直接报 muxer 错误。
+        if (MATROSKA_FAMILY.indexOf(ext) !== -1) args.push('-map', '0:t?');
+
+        // 容器级 metadata 与章节不会随 -map 自动继承，必须显式指定。
+        args.push('-map_metadata', '0', '-map_chapters', '0');
+        return args;
     }
 
     /**
@@ -1377,6 +1775,10 @@
         args = args.concat(hwInputArgs(enc, hw));
         args.push('-i', meta.path);
 
+        // ---- 流映射 ----
+        // 必须显式写 -map：默认流选择会静默丢掉第二条音轨和内挂字幕。
+        args = args.concat(streamMapArgs(ext, meta, settings));
+
         var vf = videoFilters(meta, settings);
         var targetH = resolveTargetHeight(meta, settings);
 
@@ -1388,10 +1790,16 @@
         if (vf.length && codec.id !== 'copy') args.push('-vf', vf.join(','));
 
         // ---- 音轨 ----
+        var audioCopied = false;
         if (settings.audioMode === 'none' || !meta.audio) {
             args.push('-an');
         } else if (settings.audioMode === 'copy') {
             args.push('-c:a', 'copy');
+            audioCopied = true;
+        } else if (shouldCopyAudio(meta, settings, ext)) {
+            // 源音轨已经是目标格式且够小：再压一次只会更差，直接带走。
+            args.push('-c:a', 'copy');
+            audioCopied = true;
         } else {
             args.push('-c:a', resolveAudioEncoder(ext), '-b:a', settings.audioBitrate + 'k');
         }
@@ -1412,10 +1820,22 @@
 
         if (wantTwoPass) {
             var kbps2 = calcTargetVideoKbps(meta, settings).kbps;
-            var nullOut = proc.platform === 'win32' ? 'NUL' : '/dev/null';
 
-            var pass1 = args.slice();
-            pass1.push('-pass', '1', '-passlogfile', passLogPrefix, '-an', '-f', 'mp4', nullOut);
+            // 第一遍降档：见 pass1SpeedIndex。x265 额外关掉 slow-firstpass，
+            // 否则改了 -preset 也只是省一点，它仍会按第二遍的完整工具集跑统计。
+            var pass1Base = args;
+            var p1Idx = pass1SpeedIndex(codec, settings);
+            if (p1Idx >= 0 && p1Idx < codec.speeds.length) {
+                pass1Base = withPreset(args, codec.speeds[p1Idx]);
+                if (codec.id === 'h265') {
+                    pass1Base = appendPrivateParams(pass1Base, '-x265-params', 'slow-firstpass=0');
+                }
+            }
+
+            // 输出用 -f null -：第一遍的产物本来就要丢掉，走 mp4 muxer
+            // 是白白烧一遍 CPU 和 IO（4K 母带上这点开销不小）。
+            var pass1 = pass1Base.slice();
+            pass1.push('-pass', '1', '-passlogfile', passLogPrefix, '-an', '-f', 'null', '-');
 
             // 压缩标记只写进最终产物。第一遍输出到 /dev/null，挂上去纯属浪费。
             var pass2 = args.slice().concat(markerArgs(ext, meta, settings));
@@ -1432,7 +1852,10 @@
             passLogPrefix: passes.length > 1 ? passLogPrefix : null,
             targetHeight: targetH,
             // 回传给调用方：UI 要显示「GPU」标记，失败时要知道该回退成哪个 CPU 编码器。
-            encoder: enc
+            encoder: enc,
+            // 音轨是否被原样带走。调用方拿它写日志：用户看到「体积没怎么变」
+            // 时需要知道音轨本来就没动过，而不是怀疑压缩失败了。
+            audioCopied: audioCopied
         };
     }
 
@@ -1650,11 +2073,18 @@
 
             if (opts.cancelToken) {
                 var timer = setInterval(function () {
-                    if (opts.cancelToken.cancelled && !killed) {
-                        killed = true;
-                        clearInterval(timer);
+                    if (!opts.cancelToken.cancelled || killed) return;
+                    killed = true;
+                    clearInterval(timer);
+                    // 先给 SIGTERM：ffmpeg 收到它会正常收尾 ——
+                    // 两遍编码的 passlog 会被清掉、临时产物不会停在半写状态。
+                    // SIGKILL 不给任何收尾机会，素材目录里就会残留垃圾。
+                    // 但也不能只等不杀：卡在 IO 上的进程可能永远不退出，
+                    // 所以 800ms 后再补一次 SIGKILL 兜底。
+                    try { child.kill('SIGTERM'); } catch (e) {}
+                    setTimeout(function () {
                         try { child.kill('SIGKILL'); } catch (e) {}
-                    }
+                    }, GRACEFUL_KILL_TIMEOUT_MS);
                 }, 200);
                 child.on('close', function () { clearInterval(timer); });
             }
@@ -1716,15 +2146,68 @@
     }
 
     /**
-     * 校验编码产物是否可用：文件存在、非空、且能被 ffprobe 读出时长。
+     * 比对「产物轨道数」与「源轨道数」，返回缺失项的文字描述。
+     *
+     * 只在能确定「本次本该保留」的时候才判缺失：
+     *   - 音轨被用户主动去掉（audioMode=none）不算缺失
+     *   - 字幕数由 buildPlan 的容器兼容性决定，以 opts.subtitleKept 为准
+     *   - 源信息缺失（tracks 未探测）时不猜，直接放行
      */
-    function verifyOutput(binaries, outputPath, sourceDuration) {
+    function missingTracks(sourceMeta, outTracks, opts) {
+        opts = opts || {};
+        var missing = [];
+        var src = sourceMeta && sourceMeta.tracks;
+        if (!src) return missing;
+
+        if (src.video > 0 && outTracks.video < 1) {
+            missing.push('视频流');
+        }
+        if (opts.audioMode !== 'none' && src.audio > outTracks.audio) {
+            missing.push('音轨（原 ' + src.audio + ' 条，产物 ' + outTracks.audio + ' 条）');
+        }
+        // 字幕：只有调用方明确说「本次保留了几条」才校验，否则无法区分
+        // 「丢了」和「容器装不下主动丢弃」。
+        if (isFinite(opts.subtitleKept) && opts.subtitleKept > outTracks.subtitle) {
+            missing.push('字幕（应保留 ' + opts.subtitleKept + ' 条，产物 ' + outTracks.subtitle + ' 条）');
+        }
+        return missing;
+    }
+
+    /** 统计一个 ffprobe 结果里各类流的数量。封面（attached_pic）不算正片。 */
+    function countStreams(parsed) {
+        var counts = { video: 0, audio: 0, subtitle: 0 };
+        var streams = (parsed && parsed.streams) || [];
+        for (var i = 0; i < streams.length; i++) {
+            var s = streams[i];
+            if (s.codec_type === 'video') {
+                if (s.disposition && s.disposition.attached_pic) continue;
+                counts.video++;
+            } else if (s.codec_type === 'audio') counts.audio++;
+            else if (s.codec_type === 'subtitle') counts.subtitle++;
+        }
+        return counts;
+    }
+
+    /**
+     * 校验编码产物是否可用：文件存在、非空、能被 ffprobe 读出时长，
+     * 且**没有比源文件少轨道**。
+     *
+     * 最后这一条是覆盖原文件前的最后一道闸门。丢轨不会让 ffprobe 报错，
+     * 时长也完全对得上 —— 只校验大小与时长的话，一个少了条音轨的产物会被
+     * 判定为「校验通过」，然后不可逆地覆盖掉原始素材。
+     *
+     * @param {object} [sourceMeta] 源文件的探测结果，用来比对轨道数
+     * @param {object} [opts] { audioMode, subtitleKept } 本次「应该」保留的数量，
+     *                        避免把用户主动去掉的音轨误判成丢轨
+     */
+    function verifyOutput(binaries, outputPath, sourceDuration, sourceMeta, opts) {
+        opts = opts || {};
         return new Promise(function (resolve, reject) {
             fs.stat(outputPath, function (err, stat) {
                 if (err) return reject(new Error('输出文件不存在，编码可能失败'));
                 if (stat.size <= 0) return reject(new Error('输出文件为空，编码失败'));
 
-                var args = ['-v', 'error', '-print_format', 'json', '-show_format', outputPath];
+                var args = ['-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', outputPath];
                 var p = cp.spawn(binaries.ffprobe, args);
                 var out = '', errText = '';
                 p.stdout.on('data', function (d) { out += d.toString(); });
@@ -1736,9 +2219,11 @@
                     if (code !== 0) {
                         return reject(new Error('输出文件无法解析，已放弃替换原文件：' + errText.trim()));
                     }
+                    var parsed = null;
+                    try { parsed = JSON.parse(out); } catch (e) {}
                     var dur = 0;
                     try {
-                        dur = parseFloat(JSON.parse(out).format.duration) || 0;
+                        dur = parseFloat(parsed.format.duration) || 0;
                     } catch (e) {}
                     // 时长偏差超过 2 秒或 2% 视为异常
                     if (sourceDuration > 0 && dur > 0) {
@@ -1748,7 +2233,13 @@
                                 dur.toFixed(1) + 's vs ' + sourceDuration.toFixed(1) + 's），已放弃替换原文件'));
                         }
                     }
-                    resolve({ size: stat.size, duration: dur });
+                    var outTracks = countStreams(parsed);
+                    var missing = missingTracks(sourceMeta, outTracks, opts);
+                    if (missing.length) {
+                        return reject(new Error('产物比原片少了轨道（' + missing.join('、') +
+                            '），已放弃替换原文件 —— 覆盖是不可逆的，宁可保留原始素材'));
+                    }
+                    resolve({ size: stat.size, duration: dur, tracks: outTracks });
                 });
             });
         });
@@ -1787,9 +2278,12 @@
         resetHardwareCache: resetHardwareCache,
         resolveEncoder: resolveEncoder,
         isHardwareEncoder: isHardwareEncoder,
-        crfToHwQp: crfToHwQp,
-        HW_FAMILY_LABEL: HW_FAMILY_LABEL,
-        HW_MAX_WORKERS: HW_MAX_WORKERS,
+            crfToHwQp: crfToHwQp,
+            HW_FAMILY_LABEL: HW_FAMILY_LABEL,
+            HW_MAX_WORKERS: HW_MAX_WORKERS,
+            // 资源预算常量：UI 要按同一套阈值决定给用户哪些选项
+            MAX_WORKERS: MAX_WORKERS,
+            MAX_WORKERS_MIN_CORES: MAX_WORKERS_MIN_CORES,
 
         // UI 需要的判断：HDR 破坏风险和容器能否存标记
         hdrRisk: hdrRisk,
@@ -1810,6 +2304,20 @@
             MARKER_KEY: MARKER_KEY,
             tailText: tailText,
             preferredTempDir: preferredTempDir,
+            noteTempDir: noteTempDir,
+            purgeStaleTemp: purgeStaleTemp,
+            TEMP_NAME_PREFIXES: TEMP_NAME_PREFIXES,
+            COMMIT_MIN_RATIO: COMMIT_MIN_RATIO,
+            shouldCommit: shouldCommit,
+            subtitlePlan: subtitlePlan,
+            streamMapArgs: streamMapArgs,
+            shouldCopyAudio: shouldCopyAudio,
+            vp9ParallelArgs: vp9ParallelArgs,
+            pass1SpeedIndex: pass1SpeedIndex,
+            crfToVtQuality: crfToVtQuality,
+            crfToHwQuality: crfToHwQuality,
+            countStreams: countStreams,
+            missingTracks: missingTracks,
             recommendedWorkerCount: recommendedWorkerCount,
             recommendedThreadCount: recommendedThreadCount,
             withTimeout: withTimeout,

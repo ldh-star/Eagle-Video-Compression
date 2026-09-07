@@ -138,6 +138,27 @@ $NODE tests/test_queue_intake.js        # cancellation, queue intake, atomic com
 
 ## Changelog
 
+### 1.1.1
+
+**Fixed**
+
+- **Multiple audio tracks survive compression.** The encode pipeline emitted no `-map` at all, leaving stream selection to FFmpeg's default rule, which keeps exactly one stream per type. A file with two audio tracks — dual-language, commentary plus main, 5.1 alongside stereo — came back with one, with no error and no warning, and by the time anyone noticed the original had already been replaced. The pipeline now maps streams explicitly: `-map 0:v:0 -map 0:a?` plus `-map_metadata 0 -map_chapters 0` so container metadata and chapters carry over too. Verified on a two-track source: the old command produced `[video, audio]`, the new one `[video, audio, audio]`.
+- **An output larger than the source no longer replaces it.** Re-encoding already-compressed footage, or anything the encoder handles badly, can produce a bigger file than went in. That result was written back over the original anyway, so a "compression" pass could permanently enlarge a file. The commit step now compares sizes first and skips when the output has not earned its place.
+- **Cancelling no longer leaves a half-written file.** Cancellation sent `SIGKILL` straight away. Killing FFmpeg mid-write can leave the target truncated, which for a replace-original workflow means the source is gone and the replacement is broken. It now sends `SIGTERM`, waits 800 ms for a clean exit, and only then escalates.
+- **Temporary files stop leaking into the library.** Intermediate output is written next to the source so the final commit is a same-volume rename — but that put working files inside the Eagle library directory, where Eagle indexed them as new items. Temp files are now dot-prefixed and tracked in a registry.
+
+**Improved**
+
+- **Importing many files no longer stalls the interface.** Every completed probe triggered the full refresh chain — codec dropdown, size estimate, summary bar — and each of those walked the entire task list, making import O(N²). Rendering is now diffed against the previous content and batched refreshes are throttled to 120 ms. Measured by counting reads of the task array: 100 files went from 144,146 accesses to 1,000 (144×), and wall time from 1,956 ms to 345 ms.
+- **Metadata probing runs four lanes wide.** `ffprobe` calls were serial. They now run with a concurrency of 4 against a shared cursor: on 25 real files, 1,322 ms became 451 ms (2.9×), with max in-flight probes rising from 1 to 4.
+- **VP9 encodes about 2.2× faster.** `-threads` is only advisory for libvpx-vp9 — without `-row-mt 1` it ran essentially single-threaded. Adding `-row-mt 1 -tile-columns 2` took a 1080p clip from 11.58 s to 5.32 s. Total CPU time rose from 41.0 s to 46.1 s, which is what parallelisation looks like: slightly more work, much less waiting.
+- **Committing a result is a rename, not a copy.** The old path copied the temp file to a staging file in the destination directory and then renamed it, unconditionally — a full re-write of every byte on every task. It now attempts a direct rename first and only falls back to copying on `EXDEV`. Since the temp file already sits beside the source, the common path performs zero copies: writing back a 1 GB file went from 958 ms to 4 ms.
+- **Encoder threads are budgeted across the machine.** `-threads` is ignored by libx265 and libsvtav1, so every worker claimed the whole CPU regardless of how many were running. Thread caps are now applied through the parameters those encoders actually honour — `-x265-params pools=N` and `-svtav1-params lp=N` — and derived per codec rather than globally. With 8 parallel tasks, total CPU time dropped 9.4% (H.265) and 6.4% (AV1). Note the trade-off: at full load this does not improve throughput, and wall time is roughly 5% slower, because the machine was already saturated. The gain is headroom, not speed.
+
+**Added**
+
+- **Concurrency can go to 6 or 8 on machines with 24 or more cores.** The worker ceiling was a flat 4; it is now 8 on sufficiently large machines, with the dropdown extending to match.
+
 ### 1.1.0
 
 **Added**

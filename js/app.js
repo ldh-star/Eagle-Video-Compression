@@ -243,25 +243,73 @@
     }
 
     /**
+     * 临时产物的文件名前缀（out / pass / sample）。
+     *
+     * 【开头的点不是装饰】为了同卷 rename，临时产物会被写进**源文件所在目录**，
+     * 而那个目录通常就是 Eagle 的素材库目录。Eagle 的目录监听会把任何普通
+     * 文件名的视频文件当成新素材导入 —— 用户压一次片，库里就多一个半成品，
+     * 缩略图、标签、重复检测全都跟着乱。以 . 开头的文件被 Eagle（以及
+     * Spotlight / 多数同步工具）当作隐藏文件忽略。
+     *
+     * 取值优先走 Core._internal.TEMP_NAME_PREFIXES：生成时用的前缀和
+     * 清理时认的前缀必须是同一份，写死两处迟早会漏改其中一处。
+     * 下面的字面量是 Core 版本较老时的兜底，也保证了「隐藏」这个性质
+     * 不依赖 Core 是否导出了它。
+     */
+    function tempNamePrefix(kind) {
+        var m = Core && Core._internal && Core._internal.TEMP_NAME_PREFIXES;
+        if (m && m[kind]) return m[kind];
+        return {
+            out: '.eagle-vc-out-',
+            pass: '.eagle-vc-pass-',
+            sample: '.eagle-vc-sample-'
+        }[kind] || '.eagle-vc-out-';
+    }
+
+    /**
+     * 跨卷错误：rename 搬不过去，只能复制。
+     *
+     * 只认 EXDEV。Windows 的 MoveFileEx 本来就支持跨盘移动，不会报这个错；
+     * 而 EPERM / EBUSY 这类在回退成复制之后一样会失败，不该被吞掉。
+     */
+    function isCrossDeviceError(err) {
+        return !!(err && err.code === 'EXDEV');
+    }
+
+    /**
      * 安全提交最终产物。
      *
      * 绝不能把临时输出直接 copy 到原路径：copyFile 中途失败时，原文件有被截断或
-     * 部分覆盖的风险。这里先在原文件同目录写入 staging，写完整后再 rename 覆盖；
-     * 在 macOS/Linux 的同一卷上 rename 是原子提交，失败时原文件保持不变。
-     * 在 staging 拷贝前、以及 commit 临界区前分别检查取消状态；一旦发起 rename，
-     * 就将它视为不可中断的极短提交操作，保证结果只能是旧文件或完整新文件。
+     * 部分覆盖的风险。同一卷上 rename 是原子提交 —— 结果只能是旧文件或完整新文件。
+     *
+     * 【先 rename，失败才复制】临时产物本来就被 preferredTempDir 刻意写进源目录，
+     * 就是为了这一步的同卷 rename。早先无条件先 copyFile 到 staging，等于把 4K
+     * 母带多写几个 GB，机械盘上几十秒纯浪费。
+     *
+     * 在提交前、以及 staging 拷贝后各检查一次取消状态；一旦发起 rename，就将它
+     * 视为不可中断的极短提交操作。
      */
     function atomicReplaceFileAsync(src, dest, cancelToken) {
-        var stage = path.join(path.dirname(dest), '.eagle-vc-commit-' + uid() + path.extname(dest));
         if (cancelToken && cancelToken.cancelled) return Promise.reject(newCancelledError());
-        return copyFileAsync(src, stage)
-            .then(function () {
-                if (cancelToken && cancelToken.cancelled) throw newCancelledError();
-                return renameAsync(stage, dest);
-            })
-            .catch(function (err) {
-                return unlinkQuiet(stage).then(function () { throw err; });
-            });
+
+        return renameAsync(src, dest).catch(function (err) {
+            // 只有跨卷才值得回退成「复制 + rename」。
+            // 其它错误（权限不足、目标被占用、dest 是目录…）回退也解决不了，
+            // 原样抛出 —— 把真正的失败藏在一堆注定失败的 IO 后面只会更难排查。
+            if (!isCrossDeviceError(err)) throw err;
+            if (cancelToken && cancelToken.cancelled) throw newCancelledError();
+
+            var stage = path.join(path.dirname(dest),
+                '.eagle-vc-commit-' + uid() + path.extname(dest));
+            return copyFileAsync(src, stage)
+                .then(function () {
+                    if (cancelToken && cancelToken.cancelled) throw newCancelledError();
+                    return renameAsync(stage, dest);
+                })
+                .catch(function (err2) {
+                    return unlinkQuiet(stage).then(function () { throw err2; });
+                });
+        });
     }
 
     function unlinkQuiet(p) {
@@ -270,17 +318,39 @@
         });
     }
 
-    /** 若目标已存在则追加 -1 / -2 …，避免覆盖历史备份 */
-    function uniquePath(dir, name) {
+    /** 找不冲突的备份名时的重试上限。到这个量级基本是异常状态，不该无限循环。 */
+    var UNIQUE_PATH_MAX_TRIES = 1000;
+
+    /**
+     * 若目标已存在则追加 -1 / -2 …，避免覆盖历史备份。
+     *
+     * 必须异步：备份目录常在 SMB / NFS / 没插的移动硬盘上，一次同步
+     * existsSync 几十到几百毫秒，放在 while 循环里等于直接卡住渲染线程 ——
+     * 界面会整块白掉，用户只能强制退出。
+     *
+     * @returns {Promise<string>} 不冲突的路径
+     */
+    function uniquePathAsync(dir, name, maxTries) {
         var ext = path.extname(name);
         var base = path.basename(name, ext);
-        var candidate = path.join(dir, name);
-        var i = 1;
-        while (fs.existsSync(candidate)) {
-            candidate = path.join(dir, base + '-' + i + ext);
-            i++;
+        var limit = maxTries > 0 ? maxTries : UNIQUE_PATH_MAX_TRIES;
+        var i = 0;
+
+        function attempt() {
+            var candidate = path.join(dir, i === 0 ? name : base + '-' + i + ext);
+            return new Promise(function (resolve) {
+                fs.stat(candidate, function (err) { resolve(!err); });
+            }).then(function (taken) {
+                if (!taken) return candidate;
+                i++;
+                if (i > limit) {
+                    throw new Error('备份目录里同名文件过多（>' + limit + '），已放弃：' + dir);
+                }
+                return attempt();
+            });
         }
-        return candidate;
+
+        return attempt();
     }
 
     // -----------------------------------------------------------------
@@ -520,9 +590,17 @@
             dom.selAudioBitrate.appendChild(o);
         });
 
-        // 并发数
+        // 并发数。核数够多时才把 6 / 8 摆出来：小机器上开到 8 只是徒增进程
+        // 切换开销，而 recommendedWorkerCount 也会把上限压回 4，给了也没用。
+        // 阈值直接取核心层的常量，避免两处各写一遍慢慢走偏。
+        var cpuCount = 1;
+        try { cpuCount = (os.cpus && os.cpus().length) || 1; } catch (e) {}
+        var minCores = (Core._internal && Core._internal.MAX_WORKERS_MIN_CORES) || 24;
+        var concurrencyOptions = [1, 2, 3, 4];
+        if (cpuCount >= minCores) concurrencyOptions.push(6, 8);
+
         dom.selConcurrency.innerHTML = '';
-        [1, 2, 3, 4].forEach(function (n) {
+        concurrencyOptions.forEach(function (n) {
             var o = document.createElement('option');
             o.value = String(n);
             o.textContent = tr('runtime.fileCount', '{{count}} 个', { count: n });
@@ -728,10 +806,16 @@
         var added = 0;
         var skipped = 0;
 
+        // 去重表先建好：原来这里是「每个待加文件扫一遍任务表」，
+        // 又是 O(N²)，而且这次扫的还是 DOM 之外的真实任务数组。
+        var known = {};
+        state.tasks.forEach(function (t) { known[t.path] = true; });
+
         filePaths.forEach(function (p) {
             if (!p) return;
             if (!Core.isVideoFile(p)) { skipped++; return; }
-            if (state.tasks.some(function (t) { return t.path === p; })) { skipped++; return; }
+            if (known[p]) { skipped++; return; }
+            known[p] = true;
 
             state.tasks.push({
                 id: uid(),
@@ -766,7 +850,56 @@
         return added;
     }
 
-    /** 逐个探测待处理任务的元信息（串行，避免并发 ffprobe 抢占 CPU） */
+    /** 探测阶段的 ffprobe 并发路数。 */
+    var PROBE_CONCURRENCY = 4;
+
+    /**
+     * 探测期的合并刷新。
+     *
+     * 以前是「每探测完一个文件就 renderSummary + refreshEstimate 来一遍」。
+     * 两个函数都要全表扫描，于是导入 N 个文件 = O(N²) 次渲染：实测 25 个文件
+     * 9862 次元素访问（约 16×N²），200 个文件就是 40 万量级，界面彻底冻住，
+     * 而且 scheduleSamplingEstimates 开头的 cancel 会让前几个文件的采样反复
+     * 重启，永远跑不完。
+     *
+     * 现在探测期只更新刚探测完的那一行，整表刷新合并到 120 ms 一次的批处理，
+     * 全部探测结束后再补一次收尾。
+     */
+    var batchRefreshTimer = null;
+
+    function runBatchRefresh() {
+        renderSummary();
+        // 探测完才知道位深，位深降级提示要在这里补一次；
+        // 也只有在此刻才具备时长 / 音轨等采样预估所需信息。
+        refreshCodecUI();
+        refreshEstimate();
+    }
+
+    function scheduleBatchRefresh() {
+        if (batchRefreshTimer) return;
+        batchRefreshTimer = setTimeout(function () {
+            batchRefreshTimer = null;
+            runBatchRefresh();
+        }, 120);
+    }
+
+    /** 探测收尾：把节流窗口里欠的一次刷新立刻补上。 */
+    function flushBatchRefresh() {
+        if (batchRefreshTimer) {
+            clearTimeout(batchRefreshTimer);
+            batchRefreshTimer = null;
+        }
+        runBatchRefresh();
+    }
+
+    /**
+     * 探测待处理任务的元信息。
+     *
+     * 用小并发而不是严格串行：ffprobe 只读元数据、单次几十毫秒，真正的时间
+     * 花在进程启动上 —— 串行等于把 N 次启动开销逐个付一遍，素材在机械盘或
+     * 网络盘上时还要多付 N 次寻道 / 往返。全开又会让 N 路随机读互相拖慢，
+     * 4 路是折中。结果按任务回填，不依赖完成顺序。
+     */
     function probePendingTasks() {
         var pending = state.tasks.filter(function (t) { return t.status === 'pending'; });
         if (!pending.length) { renderSummary(); return; }
@@ -783,40 +916,46 @@
         var session = state.running ? state.runSession : null;
         if (session) session.pendingProbes += pending.length;
 
-        var chain = Promise.resolve();
-        pending.forEach(function (t) {
-            chain = chain.then(function () {
-                return Core.probe(state.bins, t.path)
-                    .then(function (meta) {
-                        // 用户已取消或选择替换时，不再把晚到的探测结果复活成待处理任务。
-                        if (t.status === 'cancelled') return;
-                        t.meta = meta;
-                        t.status = 'queued';
-                        if (session && state.running && state.runSession === session && !state.cancelToken.cancelled) {
-                            session.queue.push(t);
-                            signalRunSession(session);
-                        }
-                    })
-                    .catch(function (err) {
-                        if (t.status === 'cancelled') return;
-                        t.status = 'error';
-                        t.error = err.message;
-                    })
-                    .then(function () {
-                        if (session) {
-                            session.pendingProbes = Math.max(0, session.pendingProbes - 1);
-                            signalRunSession(session);
-                        }
-                        renderTask(t);
-                        renderSummary();
-                        updateButtons();
-                        // 探测完才知道位深，位深降级提示要在这里补一次；
-                        // 也只有在此刻才具备时长 / 音轨等采样预估所需信息。
-                        refreshCodecUI();
-                        refreshEstimate();
-                    });
-            });
-        });
+        var cursor = 0;
+
+        function onProbed(t) {
+            if (session) {
+                session.pendingProbes = Math.max(0, session.pendingProbes - 1);
+                signalRunSession(session);
+            }
+            renderTask(t);
+            scheduleBatchRefresh();
+        }
+
+        function runLane() {
+            if (cursor >= pending.length) return Promise.resolve();
+            var t = pending[cursor++];
+            return Core.probe(state.bins, t.path)
+                .then(function (meta) {
+                    // 用户已取消或选择替换时，不再把晚到的探测结果复活成待处理任务。
+                    if (t.status === 'cancelled') return;
+                    t.meta = meta;
+                    t.status = 'queued';
+                    if (session && state.running && state.runSession === session && !state.cancelToken.cancelled) {
+                        session.queue.push(t);
+                        signalRunSession(session);
+                    }
+                })
+                .catch(function (err) {
+                    if (t.status === 'cancelled') return;
+                    t.status = 'error';
+                    t.error = err.message;
+                })
+                .then(function () {
+                    onProbed(t);
+                    return runLane();
+                });
+        }
+
+        var lanes = [];
+        var laneCount = Math.min(PROBE_CONCURRENCY, pending.length);
+        for (var i = 0; i < laneCount; i++) lanes.push(Promise.resolve().then(runLane));
+        Promise.all(lanes).then(function () { flushBatchRefresh(); });
     }
 
     // -----------------------------------------------------------------
@@ -837,13 +976,63 @@
             return;
         }
 
-        dom.fileList.innerHTML = '';
+        // 增量更新：先把已有行按 data-id 收进表里，再按任务顺序走一遍。
+        //
+        // 早先这里是 innerHTML = '' 再逐条重建，每追加一个素材就把已经渲染好的
+        // 几十行全丢掉 —— DOM 节点、事件监听、滚动位置和文本选区一起消失，
+        // 界面能明显看到列表整体闪一下。现在只在「行确实不存在」时才新建。
+        var existing = {};
+        var kids = dom.fileList.children;
+        for (var k = 0; k < kids.length; k++) {
+            var kid = kids[k];
+            var kidId = kid.getAttribute && kid.getAttribute('data-id');
+            if (kidId) existing[kidId] = kid;
+        }
+
+        var cursor = dom.fileList.firstChild;
         state.tasks.forEach(function (t) {
-            var el = buildTaskEl(t);
-            dom.fileList.appendChild(el);
-            t.el = el;
+            var el = existing[t.id];
+            if (el) {
+                delete existing[t.id];
+                // 任务对象可能已被替换（重新加载 / 重新探测），视图缓存要跟着换。
+                if (t.el !== el) { t.el = el; t.view = cacheTaskView(el); }
+            } else {
+                el = buildTaskEl(t);
+            }
+            if (cursor === el) {
+                cursor = cursor.nextSibling;
+            } else {
+                // insertBefore 对已在文档里的节点是「移动」，不会丢弃它。
+                dom.fileList.insertBefore(el, cursor);
+            }
             renderTask(t);
         });
+
+        // 循环走完时，cursor 之前正好是全部任务行（按任务顺序），
+        // cursor 及其之后全是不该留下的：被移除的任务行、空状态占位等。
+        //
+        // 只需要清这一段 —— 没被匹配到的旧行从头到尾都没被移动过，
+        // 一定还在 cursor 之后。不要再去 existing 里单独删一遍，
+        // 那会和这里的 removeChild 撞车（node to be removed is not a child）。
+        while (cursor) {
+            var next = cursor.nextSibling;
+            dom.fileList.removeChild(cursor);
+            cursor = next;
+        }
+    }
+
+    /** 把一行的高频节点缓存到 view 上，避免每次进度事件都 querySelector。 */
+    function cacheTaskView(el) {
+        return {
+            root: el,
+            badge: el.querySelector('.task-badge'),
+            remove: el.querySelector('.task-remove'),
+            meta: el.querySelector('.task-meta'),
+            result: el.querySelector('.task-result'),
+            fill: el.querySelector('.bar-fill'),
+            pct: el.querySelector('.task-pct'),
+            live: el.querySelector('.task-live')
+        };
     }
 
     function buildTaskEl(t) {
@@ -867,16 +1056,8 @@
             '<button type="button" class="task-remove" title="移除">×</button>';
 
         // 缓存会在高频进度更新中用到的节点，避免每个 FFmpeg 进度事件都 querySelector。
-        t.view = {
-            root: el,
-            badge: el.querySelector('.task-badge'),
-            remove: el.querySelector('.task-remove'),
-            meta: el.querySelector('.task-meta'),
-            result: el.querySelector('.task-result'),
-            fill: el.querySelector('.bar-fill'),
-            pct: el.querySelector('.task-pct'),
-            live: el.querySelector('.task-live')
-        };
+        t.el = el;
+        t.view = cacheTaskView(el);
         el.querySelector('.task-name').textContent = t.name;
         t.view.remove.addEventListener('click', function () {
             removeTask(t.id);
@@ -965,28 +1146,23 @@
         var view = t.view;
         if (!view) {
             // 兼容旧任务对象 / 测试手工构造的任务；正常路径在 buildTaskEl 已缓存。
-            view = t.view = {
-                root: el,
-                badge: el.querySelector('.task-badge'),
-                remove: el.querySelector('.task-remove'),
-                meta: el.querySelector('.task-meta'),
-                result: el.querySelector('.task-result'),
-                fill: el.querySelector('.bar-fill'),
-                pct: el.querySelector('.task-pct'),
-                live: el.querySelector('.task-live')
-            };
+            view = t.view = cacheTaskView(el);
         }
-        el.className = 'task status-' + t.status;
+        var cls = 'task status-' + t.status;
+        if (view.statusClass !== cls) { view.statusClass = cls; el.className = cls; }
 
         var badge = view.badge;
         var badgeText = {
             pending: tr('ui.statusPending', '待探测'), probing: tr('ui.statusProbing', '读取信息…'),
             queued: tr('ui.statusQueued', '待处理'), running: tr('ui.statusRunning', '压缩中'),
             done: tr('ui.statusDone', '完成'), error: tr('ui.statusFailed', '失败'),
-            incompatible: tr('ui.statusUnsupported', '不支持'), cancelled: tr('ui.statusCancelled', '已取消')
+            incompatible: tr('ui.statusUnsupported', '不支持'), cancelled: tr('ui.statusCancelled', '已取消'),
+            skipped: tr('ui.statusSkipped', '已跳过')
         };
-        badge.textContent = badgeText[t.status] || t.status;
-        badge.className = 'task-badge ' + t.status;
+        var badgeStr = badgeText[t.status] || t.status;
+        if (view.badgeText !== badgeStr) { view.badgeText = badgeStr; badge.textContent = badgeStr; }
+        var badgeCls = 'task-badge ' + t.status;
+        if (view.badgeClass !== badgeCls) { view.badgeClass = badgeCls; badge.className = badgeCls; }
 
         view.remove.disabled = state.running;
 
@@ -1064,35 +1240,59 @@
             } else if (est !== null && est !== undefined && t.status !== 'done') {
                 pushItem(tr('runtime.estimated', '预估 {{size}}', { size: F.bytes(est) }));
             }
-            meta.innerHTML = items.join('<span class="sep">·</span>');
+            // 只在内容真的变了才写 DOM：FFmpeg 的进度事件每秒来好几次，
+            // 而元信息（体积/时长/分辨率/编码）几乎从不在两次进度之间变化。
+            // 不 diff 的话每行每秒要重建好几次完整子树。
+            var metaHtml = items.join('<span class="sep">·</span>');
+            if (view.metaHtml !== metaHtml) { view.metaHtml = metaHtml; meta.innerHTML = metaHtml; }
         } else {
-            meta.textContent = t.path;
+            // 探测完成后会从这条分支切到上面那条，清掉缓存保证下次一定重写。
+            view.metaHtml = null;
+            var pathText = t.path;
+            if (view.pathText !== pathText) { view.pathText = pathText; meta.textContent = pathText; }
         }
 
-        // 结果行
+        // 结果行。同样先算出最终文本 / class 再 diff，理由同元信息。
         var result = view.result;
-        result.className = 'task-result';
+        var resultText = '';
+        var resultClass = 'task-result';
         if (t.status === 'done' && t.outputSize !== null) {
             var orig = t.meta ? t.meta.size : 0;
             var relation = F.sizeRelation(orig, t.outputSize);
-            result.textContent = tr('runtime.completed', '完成：{{original}} → {{output}}（{{change}}）', {
+            resultText = tr('runtime.completed', '完成：{{original}} → {{output}}（{{change}}）', {
                 original: F.bytes(orig),
                 output: F.bytes(t.outputSize),
                 change: spaceChangeText(orig, t.outputSize, relation, false)
             });
-            result.classList.add(relation === 'smaller' ? 'saved' : relation === 'larger' ? 'bigger' : 'same');
+            resultClass += ' ' + (relation === 'smaller' ? 'saved' : relation === 'larger' ? 'bigger' : 'same');
             // Eagle 报告替换成功、但文件大小对不上 —— 明说，别让用户以为压好了
             if (t.replaceSuspect) {
-                result.textContent += ' ⚠ Eagle 说替换成功，但文件大小对不上，请确认素材是否更新';
-                result.classList.add('warn');
+                resultText += ' ⚠ Eagle 说替换成功，但文件大小对不上，请确认素材是否更新';
+                resultClass += ' warn';
             }
         } else if (t.status === 'error' || t.status === 'incompatible') {
-            result.textContent = t.error;
-            result.classList.add('error');
+            resultText = t.error;
+            resultClass += ' error';
         } else if (t.status === 'cancelled') {
-            result.textContent = tr('runtime.cancelled', '已取消');
-        } else {
-            result.textContent = '';
+            resultText = tr('runtime.cancelled', '已取消');
+        } else if (t.status === 'skipped') {
+            // 明说「为什么没换」：不然用户只看到一排「已跳过」，
+            // 会以为是插件坏了而不是「压完反而更大，不值得换」。
+            resultText = t.outputSize !== null && t.outputSize !== undefined
+                ? tr('runtime.skippedNoGainDetail',
+                    '压缩后 {{output}}，不比原片 {{original}} 小，已保留原文件', {
+                        output: F.bytes(t.outputSize), original: F.bytes(t.meta ? t.meta.size : 0)
+                    })
+                : tr('runtime.skippedNoGain', '压缩后没有变小，已保留原文件');
+            resultClass += ' same';
+        }
+        if (view.resultText !== resultText) {
+            view.resultText = resultText;
+            result.textContent = resultText;
+        }
+        if (view.resultClass !== resultClass) {
+            view.resultClass = resultClass;
+            result.className = resultClass;
         }
 
         // 进度
@@ -1125,23 +1325,22 @@
      * 两者都只提示、不拦截。用户可能就是想二次压、就是要用 H.264 换兼容性，
      * 插件不该替他做决定 —— 但它有责任把「这一步不可逆」说在前面。
      */
-    function renderNotices(tasks) {
+    function renderNotices(stats) {
         var notices = [];
 
-        var recompressed = (tasks || []).filter(function (t) {
-            return t.meta && t.meta.compression && t.meta.compression.compressed;
-        });
-        if (recompressed.length) {
+        if (stats.recompressed) {
             notices.push({
                 level: 'info',
                 text: tr('runtime.alreadyCompressedCount',
                     '其中 {{count}} 个文件此前已被本插件压缩过，再次压缩会继续损失画质', {
-                        count: recompressed.length
+                        count: stats.recompressed
                     })
             });
         }
 
-        var risk = hdrRiskReason(tasks);
+        // 列表为空时也要扫一次全表 —— 全部压缩完的情况下 pending 是空的，
+        // 但「这批里有几个是压过的」依旧是用户该知道的信息。
+        var risk = hdrRiskReason(stats.pending.length ? stats.pending : state.tasks);
         if (risk) notices.push({ level: 'warn', text: risk });
 
         if (!notices.length) {
@@ -1156,21 +1355,59 @@
         }).join('');
     }
 
-    function renderSummary() {
-        var done = state.tasks.filter(function (t) { return t.status === 'done'; });
-        var pending = state.tasks.filter(function (t) {
-            return t.meta && t.status !== 'done' && t.status !== 'error' && t.status !== 'incompatible';
-        });
-        var orig = 0, final = 0;
+    /**
+     * 一次遍历拿齐汇总所需的全部计数。
+     *
+     * renderSummary / renderNotices / updateButtons 各自要的数字其实是同一批，
+     * 早先这里是各扫一遍（filter ×3 + reduce ×2 + some），100 个任务就是 301 次
+     * 元素访问；而 renderSummary 在每次探测完成、每次进度变化后都会被调用，
+     * 这个常数会被外面的调用频率乘上去。
+     *
+     * 返回的 pending / done 是新数组，后续对它们的遍历不再触碰 state.tasks。
+     */
+    function scanTasks() {
+        var s = {
+            total: state.tasks.length,
+            done: [], pending: [],
+            doneCount: 0, doneOrig: 0, doneFinal: 0,
+            readyCount: 0, readySize: 0,
+            recompressed: 0,
+            runnable: false
+        };
+        for (var i = 0; i < state.tasks.length; i++) {
+            var t = state.tasks[i];
+            var meta = t.meta;
+            if (t.status === 'done') {
+                s.done.push(t);
+                s.doneOrig += meta ? meta.size : 0;
+                s.doneFinal += t.outputSize || 0;
+            } else if (meta &&
+                t.status !== 'error' && t.status !== 'incompatible' && t.status !== 'skipped') {
+                s.pending.push(t);
+            }
+            if (meta) {
+                if (t.status !== 'error') { s.readyCount++; s.readySize += meta.size; }
+                if (meta.compression && meta.compression.compressed) s.recompressed++;
+                if (t.status === 'queued' || t.status === 'error' || t.status === 'incompatible') {
+                    s.runnable = true;
+                }
+            }
+        }
+        return s;
+    }
 
-        done.forEach(function (t) {
-            orig += (t.meta ? t.meta.size : 0);
-            final += (t.outputSize || 0);
-        });
+    function renderSummary() {
+        return renderSummaryWith(scanTasks());
+    }
+
+    function renderSummaryWith(s) {
+        var pending = s.pending;
+        var orig = s.doneOrig, final = s.doneFinal;
+        var doneLength = s.done.length;
 
         // 未开始压缩时优先展示“将会得到什么”，而不是空着三个破折号。
         // 实际压缩结束后仍显示真实产物，避免把预估和事实混在一起。
-        var hasPreview = !done.length && pending.length;
+        var hasPreview = !doneLength && pending.length;
         if (hasPreview) {
             var totalOriginal = pending.reduce(function (sum, t) { return sum + t.meta.size; }, 0);
             var low = 0, high = 0, center = 0;
@@ -1227,10 +1464,10 @@
                     : tr('runtime.waitingMetadata', '等待视频信息读取完成后开始预估。');
             }
         } else {
-            dom.sumOriginal.textContent = done.length ? F.bytes(orig) : '—';
+            dom.sumOriginal.textContent = doneLength ? F.bytes(orig) : '—';
             dom.sumFinalLabel.textContent = tr('ui.compressedTotal', '压缩后总大小');
-            dom.sumFinal.textContent = done.length ? F.bytes(final) : '—';
-            if (done.length && orig > 0) {
+            dom.sumFinal.textContent = doneLength ? F.bytes(final) : '—';
+            if (doneLength && orig > 0) {
                 var actualRelation = F.sizeRelation(orig, final);
                 setSummarySpaceRelation(actualRelation);
                 dom.sumSaved.textContent = spaceChangeText(orig, final, actualRelation, false);
@@ -1242,25 +1479,26 @@
             dom.estimateNote.textContent = '';
         }
 
-        renderNotices(pending.length ? pending : state.tasks);
+        renderNotices(s);
 
         // 列表统计
-        var ready = state.tasks.filter(function (t) { return t.meta && t.status !== 'error'; });
-        var totalSize = ready.reduce(function (a, t) { return a + t.meta.size; }, 0);
-        dom.listStat.textContent = state.tasks.length
+        dom.listStat.textContent = s.total
             ? tr('runtime.listStat', '共 {{count}} 个 · 合计 {{size}}', {
-                count: state.tasks.length, size: F.bytes(totalSize)
-            }) + (done.length ? tr('runtime.listStatDone', ' · 已完成 {{count}}', { count: done.length }) : '')
+                count: s.total, size: F.bytes(s.readySize)
+            }) + (doneLength ? tr('runtime.listStatDone', ' · 已完成 {{count}}', { count: doneLength }) : '')
             : tr('ui.noFiles', '尚未添加文件');
 
-        updateButtons();
+        updateButtons(s);
     }
 
-    function updateButtons() {
-        var hasTask = state.tasks.length > 0;
-        var runnable = state.tasks.some(function (t) {
-            return t.meta && (t.status === 'queued' || t.status === 'error' || t.status === 'incompatible');
-        });
+    /**
+     * @param {object} [stats] 已经算好的任务统计（renderSummary 传下来）。
+     *        不传时自己扫一遍 —— 目的是让一次汇总只扫一次全表。
+     */
+    function updateButtons(stats) {
+        var s = stats || scanTasks();
+        var hasTask = s.total > 0;
+        var runnable = s.runnable;
         dom.btnStart.disabled = state.running || !runnable || !state.ready;
         dom.btnCancel.disabled = !state.running;
         dom.btnClear.disabled = state.running || !hasTask;
@@ -1417,12 +1655,24 @@
         var cpuCount = 1;
         try { cpuCount = (os.cpus && os.cpus().length) || 1; } catch (e) {}
         var encInfo = currentEncoderInfo(settings);
+        // AV1 的并发上限取决于分辨率（小分辨率才能放开多路）。队列里分辨率
+        // 不一致时按最高的那个算 —— 宁可保守，也不要让 4K 任务跟别人抢核。
+        var budgetMeta = null;
+        tasks.forEach(function (t) {
+            if (!t.meta || !t.meta.video) return;
+            if (!budgetMeta || Number(t.meta.video.height) > Number(budgetMeta.video.height)) {
+                budgetMeta = t.meta;
+            }
+        });
         var concurrency = Core._internal.recommendedWorkerCount(
-            settings, cpuCount, tasks.length, encInfo.kind);
+            settings, cpuCount, tasks.length, encInfo.kind, budgetMeta);
         // 不写回持久化设置：这是本次运行的资源预算，不是替用户修改“同时处理”偏好。
         var runtimeSettings = {};
         Object.keys(settings).forEach(function (key) { runtimeSettings[key] = settings[key]; });
-        runtimeSettings.runtimeThreads = Core._internal.recommendedThreadCount(cpuCount, concurrency);
+        // 线程上限按编码器分档：x264 超过 16 线程收益递减且轻微伤画质，
+        // x265 / AV1 则没有这个拐点，砍到 8 等于扔掉一半算力（见 THREAD_CAP）。
+        runtimeSettings.runtimeThreads = Core._internal.recommendedThreadCount(
+            cpuCount, concurrency, settings.codec);
         runtimeSettings.hwKind = encInfo.kind;
 
         if (Core.isHardwareEncoder(encInfo)) {
@@ -1514,8 +1764,9 @@
         // 但同卷替换避免了“系统临时目录 → 外置盘/网络盘”额外复制一次大文件。
         // 目录不可写时 Core 会安全回退到系统临时目录。
         var tempDir = Core._internal.preferredTempDir(t.path);
-        var tmpOut = path.join(tempDir, 'eagle-vc-out-' + t.id + t.ext);
-        var passPrefix = path.join(tempDir, 'eagle-vc-pass-' + t.id);
+        // 前缀带点：源文件目录通常就是 Eagle 素材库，普通文件名会被当成新素材导入。
+        var tmpOut = path.join(tempDir, tempNamePrefix('out') + t.id + t.ext);
+        var passPrefix = path.join(tempDir, tempNamePrefix('pass') + t.id);
         var passLogs = [passPrefix + '-0.log', passPrefix + '-0.log.mbtree'];
 
         function cleanup() {
@@ -1564,6 +1815,12 @@
             }
             try {
                 plan = Core.buildPlan(t.meta, s, tmpOut, passPrefix, state.hw);
+                // 音轨直通要写进日志：用户看到「体积没怎么变」时得知道音轨
+                // 本来就没动过，而不是怀疑压缩失败了。
+                if (plan.audioCopied && settings.audioMode !== 'copy' && !t.audioCopyLogged) {
+                    t.audioCopyLogged = true;
+                    log('info', '[' + t.name + '] 源音轨已够小，直接复制（不重编码）');
+                }
             } catch (err) {
                 t.status = 'error';
                 t.error = err.message;
@@ -1605,11 +1862,37 @@
 
         return encodeChain
             // 3) 校验产物
+            //
+            // 除了大小与时长，还要比对轨道数：ffmpeg 的默认流选择是「每类只留一路」，
+            // 丢轨的产物时长、体积都对得上，只校验这两项会放行一个少了音轨的文件
+            // 去覆盖原素材 —— 那是不可逆的损毁。
+            // subtitleKept 由容器能力决定（见 Core.subtitlePlan），MP4 装不下位图
+            // 字幕时是主动丢弃，不能算丢轨。
             .then(function () {
-                return Core.verifyOutput(state.bins, tmpOut, t.meta.duration);
+                var subPlan = Core._internal.subtitlePlan
+                    ? Core._internal.subtitlePlan(t.ext, t.meta)
+                    : { kept: 0 };
+                return Core.verifyOutput(state.bins, tmpOut, t.meta.duration, t.meta, {
+                    audioMode: settings.audioMode,
+                    subtitleKept: subPlan.kept
+                });
             })
-            .then(function () {
+            .then(function (info) {
                 if (state.cancelToken.cancelled) throw Core.CancelledError();
+
+                // 3b) 体积闸门：产物没有明显变小就不要动原文件。
+                //
+                // 必须放在备份之前 —— 否则「变大不替换」还会白备份一次大文件，
+                // 白白多一次全量读 + 全量写。
+                // 判据是「小 2%」而不是「更小」：只小几十 KB 的替换毫无意义，
+                // 却要付一次覆盖风险 + 一次有损重编码。
+                if (info && !Core._internal.shouldCommit(info.size, t.meta.size)) {
+                    var skip = new Error(tr('runtime.skippedNoGain',
+                        '压缩后没有变小，已保留原文件'));
+                    skip.skipped = true;
+                    skip.outputSize = info.size;
+                    throw skip;
+                }
 
                 // 4) 备份原文件
                 //    目录为空时静默跳过：勾选框在没目录的情况下是禁用的，
@@ -1625,8 +1908,8 @@
                 } catch (e) {
                     throw new Error('无法创建备份目录：' + settings.backupDir + '（' + e.message + '）');
                 }
-                var backupPath = uniquePath(settings.backupDir, t.name);
-                return copyFileAsync(t.path, backupPath);
+                return uniquePathAsync(settings.backupDir, t.name)
+                    .then(function (backupPath) { return copyFileAsync(t.path, backupPath); });
             })
             .then(function () {
                 if (state.cancelToken.cancelled) throw Core.CancelledError();
@@ -1703,6 +1986,20 @@
                 return cleanup();
             })
             .catch(function (err) {
+                if (err && err.skipped) {
+                    // 编码本身是成功的，只是产物不值得替换原文件。
+                    // 这不是失败：原文件完好、也没有付出一次有损重编码。
+                    t.status = 'skipped';
+                    t.outputSize = err.outputSize || null;
+                    t.progress = 100;
+                    t.liveInfo = '';
+                    log('info', '[' + t.name + '] ' + err.message + ' | ' +
+                        F.bytes(t.meta.size) + ' → ' +
+                        (t.outputSize === null ? '未知' : F.bytes(t.outputSize)) +
+                        ' | 耗时 ' + ((Date.now() - tStart) / 1000).toFixed(1) + 's');
+                    renderTask(t);
+                    return cleanup();
+                }
                 if (err && err.cancelled) {
                     t.status = 'cancelled';
                     t.liveInfo = '';
@@ -2089,16 +2386,54 @@
     // CRF 采样预估是后台低优先级工作。批量导入时不能对每条都立刻起 FFmpeg：
     // 默认只自动分析最前 3 条，其余由用户点「分析全部」按需展开。
     var AUTO_SAMPLE_LIMIT = 3;
+    /** 后台采样的并发路数。后台活，别和正式编码抢 CPU。 */
+    var SAMPLE_CONCURRENCY = 2;
     var sampleEstimateTimer = null;
     var sampleEstimateToken = null;
     var sampleEstimateRevision = 0;
     var sampleEstimateCache = {};
 
-    /** 同一个文件 + 文件状态 + 当前视频编码设置，才能复用同一次会话内的采样结果。 */
+    /**
+     * 采样缓存的条目上限。
+     *
+     * 长会话里反复改 CRF / 分辨率 / 编码器，每个组合都是一把新 key，
+     * 缓存只增不减。条目本身很小，真正要防的是「无限增长」而不是命中率，
+     * 所以这里用一个最朴素的 LRU：命中就重新插到末尾，超限时丢队首。
+     */
+    var SAMPLE_CACHE_LIMIT = 200;
+
+    /** 取缓存，并把它提升为「最近使用」；没有返回 null。 */
+    function cachedSampleEstimate(key) {
+        if (!key || !sampleEstimateCache[key]) return null;
+        var v = sampleEstimateCache[key];
+        delete sampleEstimateCache[key];
+        sampleEstimateCache[key] = v;
+        return v;
+    }
+
+    function rememberSampleEstimate(key, value) {
+        if (!key) return;
+        delete sampleEstimateCache[key];
+        // Object.keys 对字符串键按插入顺序返回，配合上面「命中即重新插入」，
+        // 队首就是最久没用过的那个。
+        var keys = Object.keys(sampleEstimateCache);
+        while (keys.length >= SAMPLE_CACHE_LIMIT) {
+            delete sampleEstimateCache[keys.shift()];
+        }
+        sampleEstimateCache[key] = value;
+    }
+
+    /**
+     * 同一个文件 + 文件状态 + 当前视频编码设置，才能复用同一次会话内的采样结果。
+     *
+     * mtime 直接用探测时一并取回的 meta.mtimeMs，不在这里 stat：
+     * 这个函数会被 scheduleSamplingEstimates 对每个任务各调一次，而后者在每次
+     * 设置变动时都重跑 —— 备份 / 素材目录在 SMB、NFS 或没插的移动硬盘上时，
+     * 一次同步 stat 几十到几百毫秒，渲染线程直接卡住。
+     */
     function sampleCacheKey(t) {
         if (!t || !t.meta) return '';
-        var mtime = 0;
-        try { mtime = fs.statSync(t.path).mtimeMs || 0; } catch (e) {}
+        var mtime = t.meta.mtimeMs || 0;
         var s = state.settings || {};
         return [t.path, t.meta.size || 0, mtime, s.codec, s.speedIndex, s.resolution,
             s.customHeight, s.fps, s.audioMode, s.audioBitrate, s.mode, s.crf].join('|');
@@ -2166,7 +2501,7 @@
         var uncached = [];
         tasks.forEach(function (t) {
             var key = sampleCacheKey(t);
-            var cached = key && sampleEstimateCache[key];
+            var cached = cachedSampleEstimate(key);
             t.sampleError = '';
             t.liveInfo = '';
             t.sampleCacheKey = key;
@@ -2198,15 +2533,20 @@
             var token = { cancelled: false };
             sampleEstimateToken = token;
             updateSampleAnalysisControls();
-            var chain = Promise.resolve();
 
-            selected.forEach(function (t) {
-                chain = chain.then(function () {
-                    if (token.cancelled || revision !== sampleEstimateRevision || state.running) return;
-                    // 已被移出列表 / 已开始正式压缩的任务不再浪费 CPU。
-                    if (state.tasks.indexOf(t) < 0 || !t.meta || t.status === 'done') return;
+            // 2 路并发：采样是空闲期的后台活，每段只编几秒，串起来跑等于
+            // 把「分析全部」变成 N×3 次串行 ffmpeg。开 2 路就已经能把进程
+            // 启动开销摊掉，再多则会和正式编码抢 CPU。
+            var cursor = 0;
 
-                    t.sampleStatus = 'running';
+            function runLane() {
+                if (cursor >= selected.length) return Promise.resolve();
+                var t = selected[cursor++];
+                if (token.cancelled || revision !== sampleEstimateRevision || state.running) return Promise.resolve();
+                // 已被移出列表 / 已开始正式压缩的任务不再浪费 CPU。
+                if (state.tasks.indexOf(t) < 0 || !t.meta || t.status === 'done') return runLane();
+
+                t.sampleStatus = 'running';
                     renderTask(t);
                     renderSummary();
                     updateSampleAnalysisControls();
@@ -2229,7 +2569,7 @@
                         t.sampleEstimate = result;
                         t.sampleStatus = 'ready';
                         t.liveInfo = '';
-                        if (t.sampleCacheKey) sampleEstimateCache[t.sampleCacheKey] = result;
+                        rememberSampleEstimate(t.sampleCacheKey, result);
                         log('info', '[' + t.name + '] CRF 预估完成：' +
                             F.bytes(result.low) + '～' + F.bytes(result.high) +
                             '（' + result.sampleCount + ' 段采样）');
@@ -2244,11 +2584,15 @@
                         renderTask(t);
                         renderSummary();
                         updateSampleAnalysisControls();
-                    });
-                });
-            });
+                    })
+                    .then(function () { return runLane(); });
+            }
 
-            chain.then(function () {
+            var lanes = [];
+            var laneCount = Math.min(SAMPLE_CONCURRENCY, selected.length);
+            for (var li = 0; li < laneCount; li++) lanes.push(Promise.resolve().then(runLane));
+
+            Promise.all(lanes).then(function () {
                 if (revision === sampleEstimateRevision) {
                     sampleEstimateToken = null;
                     updateSampleAnalysisControls();
@@ -2561,6 +2905,7 @@
             renderList: renderList,
             renderTask: renderTask,
             sampleCacheKey: sampleCacheKey,
+            uniquePathAsync: uniquePathAsync,
             scheduleSamplingEstimates: scheduleSamplingEstimates,
             stopSamplingEstimates: stopSamplingEstimates,
             updateSampleAnalysisControls: updateSampleAnalysisControls,
