@@ -3,7 +3,7 @@
 <!-- section:overview -->
 ## Kurzbeschreibung
 
-Ein lokales Plugin für die Stapelkomprimierung von Videos in Eagle. Es lädt die aktuell ausgewählten Videos automatisch, kodiert sie mit FFmpeg neu und kann das ursprüngliche Eagle-Element nach erfolgreicher Komprimierung ersetzen.
+Ein lokales Plugin für die Stapelkomprimierung von Videos in Eagle. Es lädt die aktuell ausgewählten Videos automatisch (lokale Videodateien lassen sich auch per Drag-and-drop ins Fenster ziehen), kodiert sie mit FFmpeg neu und ersetzt nach erfolgreicher Komprimierung die Datei im ursprünglichen Pfad.
 
 - Die gesamte Verarbeitung erfolgt lokal. Es werden weder Videodateien hochgeladen noch Metadaten an einen Server gesendet.
 - Standardausgabe ist H.265/HEVC; H.264, AV1, VP9 und reines Remuxen stehen ebenfalls zur Verfügung.
@@ -12,22 +12,30 @@ Ein lokales Plugin für die Stapelkomprimierung von Videos in Eagle. Es lädt di
 - Einstellbar sind Auflösung, Bildrate, Audio, Kodiergeschwindigkeit, Parallelität und der Umgang mit 10-Bit-Quellen.
 - HDR-Quellen werden erkannt, und die Farbmetadaten bleiben beim Neukodieren erhalten. Bereits komprimierte Dateien werden markiert, damit kein zweiter verlustbehafteter Durchgang aus Versehen passiert.
 - Optionale GPU-Hardwarekodierung (NVIDIA NVENC, Intel Quick Sync, AMD AMF), die bei vorhandener geeigneter Hardware automatisch genutzt wird und sonst auf die CPU-Softwarekodierung zurückfällt.
-- Die Sicherung ist standardmäßig deaktiviert und lässt sich erst nach Auswahl eines Sicherungsordners einschalten.
+- Die Sicherung ist standardmäßig deaktiviert und lässt sich erst nach Auswahl eines Sicherungsordners einschalten. Bleibt sie aus, existiert keine Kopie der Originaldatei.
 - Einstellungen bleiben erhalten, die Oberfläche folgt dem Eagle-Design, acht Sprachen werden unterstützt.
 
 <!-- section:usage -->
 ## Bedienung
 
-**Voraussetzungen**: Eagle mit verfügbarer FFmpeg-Abhängigkeit. Ist sie nicht erreichbar, wird auf eine lokale FFmpeg-/FFprobe-Installation zurückgegriffen. Verifizierte Plattform ist derzeit macOS.
+**Vor der ersten Nutzung**
+
+Das Plugin benötigt **sowohl** ein funktionierendes FFmpeg als auch ffprobe.
+
+- Empfohlen: Installieren Sie in Eagle das Abhängigkeits-Plugin „FFmpeg“. Das Plugin nutzt es automatisch.
+- Alternativ können Sie FFmpeg (inklusive ffprobe) selbst systemweit installieren; das Plugin greift dann auf diese Installation zurück.
+- Wird keines von beiden gefunden, ist keine Komprimierung möglich: Die Statusleiste meldet, dass FFmpeg nicht verfügbar ist, das Protokoll klappt automatisch auf, und über „Diagnose kopieren“ sehen Sie die durchsuchten Pfade.
+
+Verifizierte Plattform ist derzeit macOS.
 
 **Grundlegender Ablauf**
 
 1. Wählen Sie in Eagle ein oder mehrere Videos aus.
-2. Öffnen Sie **Video komprimieren**. Die ausgewählten Videos werden automatisch in die Aufgabenliste übernommen.
+2. Öffnen Sie **Video komprimieren**. Die ausgewählten Videos werden automatisch in die Aufgabenliste übernommen. Sie können lokale Videodateien auch ins Fenster ziehen.
 3. Wählen Sie Codec und Komprimierungsmodus. Voreinstellung ist H.265 mit CRF 28.
 4. Prüfen Sie Originalgröße, geschätzte Ausgabegröße und die Zusammenfassung der Speicheränderung.
 5. Wenn Sie die Originaldatei behalten möchten, wählen Sie zuerst einen Sicherungsordner und aktivieren Sie dann die Sicherung.
-6. Klicken Sie auf **Komprimierung starten** und bestätigen Sie.
+6. Klicken Sie auf **Komprimierung starten** und bestätigen Sie, nachdem Sie die Hinweise zu Überschreiben und Sicherung im Bestätigungsdialog gelesen haben.
 
 **Welchen Modus wählen?**
 
@@ -58,10 +66,37 @@ Die Auswahl „Hardwarebeschleunigung“ bietet drei Optionen:
 
 - Während der Komprimierung können Sie jederzeit **Anhalten und abbrechen** wählen. Laufende FFmpeg-Prozesse werden beendet, noch nicht gestartete Aufgaben sofort als abgebrochen markiert, und die Originaldateien bleiben unberührt.
 - Ändern Sie die Auswahl in Eagle und öffnen das Plugin erneut, fragt es nach: Vorgang abbrechen, aktuelle Warteschlange ersetzen oder anhängen. Laufende Arbeit wird nie stillschweigend verworfen.
-- Das Ersetzen der Originaldatei ist verlustbehaftet und nicht umkehrbar. Bewahren Sie von unersetzlichem Material stets eine eigene Kopie auf.
+- Bei „Zur Aufgabenliste hinzufügen“ folgt eine zweite Rückfrage: Die hinzugefügten Dateien werden sofort komprimiert und ersetzen ihre Originale. Der Dialog listet die neuen Dateien auf und nennt den tatsächlichen Sicherungsstatus dieses Durchlaufs. Während der Komprimierung lassen sich die Sicherungseinstellungen nicht ändern.
+
+**Zum Ersetzen der Dateien**
+
+- Nach erfolgreicher Komprimierung wird die Datei im ursprünglichen Pfad ersetzt – auch bei Dateien, die Sie ins Fenster gezogen haben. Das ist verlustbehaftet und nicht umkehrbar.
+- Auch wenn „Nach Abschluss mit der Eagle-Bibliothek abgleichen“ deaktiviert ist, wird die Originaldatei **trotzdem ersetzt**. Diese Option steuert nicht das Überschreiben, sondern nur, ob das verknüpfte Element über die Ersetzungs-API von Eagle aktualisiert und das Vorschaubild erneuert wird. Sie eignet sich nicht dazu, das Original zu behalten.
+- Um das Original zu behalten, wählen Sie zuerst über „Sicherungsordner wählen…“ ein Ziel und prüfen Sie, dass „Original vor der Komprimierung sichern“ aktiviert ist. Ohne gewählten Ordner ist das Kontrollkästchen deaktiviert und es wird nichts gesichert.
+- Dateien, die nach der Komprimierung nicht kleiner sind, werden übersprungen; das Original bleibt unverändert.
+- Bewahren Sie von unersetzlichem Material stets eine eigene, separate Kopie auf.
+
+**Gespeicherte Daten und deren Entfernung**
+
+- Das Plug-in schreibt genau zwei Dateien auf den Rechner: die Einstellungen unter `~/Library/Application Support/Eagle 视频压缩/settings.json` und das Laufzeitprotokoll unter `~/Library/Logs/Eagle 视频压缩/plugin.log`. Unter Windows liegen beide in `%APPDATA%\Eagle 视频压缩\`.
+- Beide Pfade stehen oben im Bereich „Laufzeitprotokoll“ des Plug-ins und lassen sich dort direkt ablesen und kopieren.
+- „Einstellungen zurücksetzen“ in der Kopfzeile stellt nur die Standardwerte wieder her und löscht die Datei nicht.
+- Beim Deinstallieren bleiben diese beiden Dateien erhalten. Für eine vollständige Bereinigung die beiden oben genannten Ordner von Hand löschen.
+- Temporäre Dateien der Komprimierung entstehen neben der Quelldatei und werden nach dem Durchlauf oder beim nächsten Start automatisch entfernt, sammeln sich also nicht an.
 
 <!-- section:changelog -->
 ## Versionsverlauf
+
+### 1.1.2
+
+- Behoben: Während eines Laufs angehängte Elemente wurden sofort komprimiert und ersetzten ihre Originale, obwohl der Hinweis nur Anzahl und Dateinamen zeigte. Das Anhängen während eines Laufs öffnet jetzt einen eigenen Bestätigungsdialog, der die neuen Dateien auflistet, das sofortige Komprimieren und Ersetzen der Dateien im ursprünglichen Pfad benennt und den tatsächlichen Sicherungsstatus dieses Laufs angibt — mit deutlicher Warnung, wenn die Originale nicht wiederhergestellt werden können.
+- Behoben: Die Warnungen zu Überschreiben, Sicherung und Unwiederbringlichkeit vor dem Start waren fest in vereinfachtem Chinesisch hinterlegt und in allen anderen Sprachen unsichtbar. Sie stammen jetzt aus den Sprachdateien, mit vollständigen Übersetzungen für alle acht Sprachen.
+- Behoben: Die Formulierung legte nahe, dass das Original nur bei aktivem „Nach Abschluss mit der Eagle-Bibliothek abgleichen“ ersetzt wird. Die Datei im ursprünglichen Pfad wird in jedem Fall ersetzt; die Option entscheidet nur, ob das verknüpfte Element und sein Vorschaubild über die Ersetzungs-API von Eagle aktualisiert werden. Oberfläche und Dokumentation wurden korrigiert.
+- Verbessert: Das Paket wird jetzt aus einer Positivliste erstellt und enthält nur Programm, Stile, Symbol, Sprachdateien und die Lizenz.
+- Verbessert: Name und Beschreibung für den Plugin-Store haben eine einzige Quelle, und die sprachabhängigen Längenbegrenzungen werden vor der Einreichung geprüft.
+- Verbessert: Die Bedienung beginnt nun mit „Vor der ersten Nutzung“ und benennt, dass sowohl FFmpeg als auch ffprobe erforderlich sind und was passiert, wenn keines gefunden wird.
+- Behoben: Die Schaltflächen „Komprimierung starten“ und „Anhalten und abbrechen“ sprangen seitlich, sobald die Zusammenfassung berechnet war. In einem schmalen Fenster rutschten sie in eine zweite Zeile, während das Füllelement, das sie nach rechts schob, in der ersten blieb — die Schaltflächen standen dann links. Sie richten sich jetzt selbst rechts aus, mit oder ohne Umbruch.
+- Verbessert: Das Protokollfenster zeigt jetzt die vollständigen Pfade von Einstellungs- und Protokolldatei, und die Bedienhinweise haben einen Abschnitt „Gespeicherte Daten und deren Entfernung“ erhalten, der beschreibt, was nach dem Deinstallieren zurückbleibt und wie es sich entfernen lässt.
 
 ### 1.1.1
 

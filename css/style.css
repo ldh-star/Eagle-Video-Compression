@@ -37,6 +37,12 @@ body.light {
 
 * { box-sizing: border-box; }
 
+/* 浏览器给 [hidden] 的 display:none 来自 UA 样式表，任何一条作者样式里的
+   display 都会盖掉它。本文件里 .notice-row / .sample-analysis-controls /
+   .modal-mask 都写了 display，于是 JS 里的 el.hidden = true 全部失效。
+   放一条兜底规则在最前面，代价是以后要靠 class 控制显示的元素别再用 hidden。 */
+[hidden] { display: none !important; }
+
 html, body {
     margin: 0;
     padding: 0;
@@ -553,8 +559,6 @@ input[type="range"]::-webkit-slider-thumb {
     flex-wrap: wrap;
 }
 
-.actionbar-spacer { flex: 1 1 auto; min-width: 0; }
-
 /* 预估精度说明。CRF 只能靠采样/经验估，必须说清楚不是保证值 */
 .estimate-note {
     font-size: 11px;
@@ -646,7 +650,12 @@ input[type="range"]::-webkit-slider-thumb {
 .sum-item.bigger .sum-value { color: var(--danger); }
 .sum-item.same .sum-value { color: var(--text); }
 .sum-arrow { color: var(--text-faint); font-size: 14px; }
-.actions { display: flex; gap: 8px; }
+/* margin-left: auto 而不是靠前面那个 spacer 撑开。
+   操作栏是 flex-wrap: wrap 的，窗口窄或汇总数字变长时这两个按钮会折到第二行，
+   而 spacer 留在第一行 —— 第二行没有东西顶它们，按钮就贴到左边去了。
+   于是「原始总大小」这类数字一算出来，按钮的位置就左右跳一下。
+   auto 外边距是按行生效的：不管落在哪一行，都吃掉本行剩余空间，始终靠右。 */
+.actions { display: flex; gap: 8px; margin-left: auto; }
 
 /* ---------------------------- 弹层 ---------------------------- */
 .modal-mask {
@@ -658,7 +667,6 @@ input[type="range"]::-webkit-slider-thumb {
     justify-content: center;
     z-index: 100;
 }
-.modal-mask[hidden] { display: none; }
 
 .modal {
     background: var(--panel);

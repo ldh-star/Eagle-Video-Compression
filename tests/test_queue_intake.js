@@ -128,13 +128,42 @@ function wait(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
     win.App._state.runSession = { queue: [replacement], pendingProbes: 0, waiters: [] };
     win.App._state.runPromise = Promise.resolve();
 
+    // 运行中追加 = 立即编码 + 覆盖原文件，必须先过一道独立确认。
+    // 上一次审核就栽在这里：首次确认框列的是上一批文件和当时的备份状态，
+    // 对追加进来的文件没有任何告知效力。
+    const appendMask = win.document.getElementById('appendConfirmMask');
+    assert(appendMask, 'Expected an append confirmation modal to exist');
+
+    selected.splice(0, selected.length, { filePath: '/tmp/live-append-cancelled.mp4' });
+    win.App.onShow();
+    await wait(30);
+    win.document.getElementById('btnSelectionAppend').click();
+    await wait(30);
+    assert.strictEqual(appendMask.hidden, false,
+        'Expected appending while running to require a separate confirmation');
+    assert(!win.App._state.runSession.queue.some((t) => t.path === '/tmp/live-append-cancelled.mp4'),
+        'Expected nothing to enter the live queue before the user confirms');
+    assert(win.document.getElementById('appendConfirmWarn').textContent.indexOf('无法恢复') >= 0,
+        'Expected the append warning to spell out that unbacked originals cannot be recovered');
+    assert(win.document.getElementById('appendConfirmList').textContent.indexOf('live-append-cancelled.mp4') >= 0,
+        'Expected the append confirmation to list exactly which files are being added');
+
+    win.document.getElementById('btnAppendConfirmCancel').click();
+    await wait(30);
+    assert.strictEqual(appendMask.hidden, true, 'Expected declining to close the append confirmation');
+    assert(!win.App._state.tasks.some((t) => t.path === '/tmp/live-append-cancelled.mp4'),
+        'Expected declining to leave the queue untouched');
+
     selected.splice(0, selected.length, { filePath: '/tmp/live-append.mp4' });
     win.App.onShow();
     await wait(30);
     win.document.getElementById('btnSelectionAppend').click();
     await wait(30);
+    win.document.getElementById('btnAppendConfirmOk').click();
+    await wait(30);
+    assert.strictEqual(appendMask.hidden, true, 'Expected confirming to close the append confirmation');
     assert(win.App._state.runSession.queue.some((task) => task.path === '/tmp/live-append.mp4'),
-        'Expected a video appended while running to join the live worker queue');
+        'Expected a confirmed append to join the live worker queue');
 
     win.App._internal.renderSummary();
     win.document.getElementById('btnCancel').click();

@@ -11,8 +11,11 @@
  * 不要直接编辑 SUBMISSION.md，否则下次生成会被覆盖。
  *
  * 注意：docs/ 下多一个 .md 就会被 tools/check-docs.js 当成语系文档报错，
- * 所以汇总文件只能放仓库根目录；它同时被 sync-to-eagle.sh 排除，
- * 不会被同步进 Eagle 打进 .eagleplugin。
+ * 所以汇总文件只能放仓库根目录。安装包走 tools/build-package.sh 的白名单，
+ * 根目录下没登记的文件一律不进包，本文件自然被挡在外面。
+ *
+ * 生成是手动的，所以 tools/verify.sh 会重跑一遍并比对：改了 docs/ 却忘了
+ * 重新生成时，校验会当场把它更新掉并提示一起提交（1.1.0 之后它停更了两个版本）。
  */
 const fs = require('fs');
 const path = require('path');

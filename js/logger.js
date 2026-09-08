@@ -68,8 +68,11 @@
             }
 
             var home = os.homedir();
+            // %APPDATA% 优先，和 app.js 里设置文件的落盘逻辑保持一致。
+            // 写死 AppData\Roaming 的话，改过 APPDATA 的机器上会出现
+            // 设置在一处、日志在另一处，排查时对不上。
             var dir = (proc && proc.platform === 'win32')
-                ? path.join(home, 'AppData', 'Roaming', 'Eagle 视频压缩')
+                ? path.join((proc.env && proc.env.APPDATA) || path.join(home, 'AppData', 'Roaming'), 'Eagle 视频压缩')
                 : path.join(home, 'Library', 'Logs', 'Eagle 视频压缩');
             logFilePath = path.join(dir, 'plugin.log');
             return logFilePath;

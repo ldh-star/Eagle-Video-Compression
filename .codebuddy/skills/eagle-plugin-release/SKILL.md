@@ -120,13 +120,17 @@ git diff --stat HEAD~1
 
 ### 7. 打包
 
-Eagle 插件面板（按 `P`）→ 右键插件 → 打包插件 → 导出 `.eagleplugin`。
+```bash
+./tools/build-package.sh --zip      # 产出 dist/video-compress-<version>.eagleplugin
+```
 
-打包前确认：
+**不要从仓库根目录打包。** 1.1.1 投稿被拒的原因之一就是 `tests/` `tools/` `reports/` `sync-to-eagle.sh` `SUBMISSION.md` 全都进了安装包——当时 `sync-to-eagle.sh` 里确实有排除列表，但打包源是仓库根目录，那份黑名单从头到尾没参与。
 
-- `./tools/verify.sh` 的「打包卫生」一节没有告警
-- 跑 `./tools/clean-workspace.sh` 清掉 `.DS_Store` 与陈旧的 `.git/index.lock`（`.eagleplugin` 是**整个目录进包**，Finder 顺手生成的 `.DS_Store` 也会一起进去）
-- `sync-to-eagle.sh` 顶部的 `EXCLUDES` 数组已排除 `tests` / `tools` / `docs` / `.idea` / `.codebuddy`——**它同步进去的东西就是将来会被打包的东西**。这个数组同时供 `rsync` 和末尾的 `diff -r` 校验使用，新增开发期目录时只需改这一处；不要退回到两边各写一份 `--exclude`，那正是之前导致校验永远失败的原因
-- 重启 Eagle 确认插件能正常加载（Eagle 只在启动时扫描插件目录）
+现在唯一的事实来源是 `tools/build-package.sh` 顶部的 `INCLUDE` **白名单**：`manifest.json` / `index.html` / `logo.png` / `LICENSE` / `css` / `js` / `_locales`。README、`docs/`、`REVIEW.md`、`SUBMISSION.md` 都不进包——README 是给开发者看的，使用说明在商店页。
+
+- 新增运行时文件（新的 `js/`、新图标）必须同时登记进 `INCLUDE` 和 `tools/verify.sh` 打包卫生那一节的顶层白名单正则，否则插件会当场加载失败或校验报红。这是白名单相对黑名单的关键好处：**漏登记 5 秒内就暴露，而不是等审核回信**。
+- 开发期同步用 `./sync-to-eagle.sh`（等价于 `build-package.sh --install`），装完重启 Eagle（Eagle 只在启动时扫描插件目录）。
+- 打包前跑 `./tools/verify.sh`，「打包卫生」一节必须绿。
+- 跑 `./tools/clean-workspace.sh` 清掉 `.DS_Store`。
 
 提交到插件中心前，对照官方的[投稿前检查清单](https://developer.eagle.cool/plugin-api/zh-cn/distribution/prepare)。

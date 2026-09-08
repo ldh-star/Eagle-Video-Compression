@@ -63,7 +63,7 @@
             setText('[data-panel="target"] .hint', 'ui.targetHint', '每个视频压缩到该大小附近。H.264 / H.265 采用两遍编码，精度更高但耗时约翻倍');
             setText('#backupCheck span', 'ui.backup', '压缩前备份原文件');
             setText('#btnPickBackup', 'ui.selectBackup', '选择备份位置…');
-            setText('#chkReplaceInEagle + span', 'ui.replaceInEagle', '完成后同步回 Eagle 素材（替换原素材并刷新缩略图）');
+            setText('#chkReplaceInEagle + span', 'ui.replaceInEagle', '完成后同步回 Eagle 素材库（刷新缩略图与素材信息）');
             setText('.field.inline label', 'ui.concurrency', '同时处理');
             setText('.field.inline .hint', 'ui.concurrencyHint', '并发数越高越快，但 CPU 占用也越高');
             setText('#btnAddFiles', 'ui.addFiles', '添加本地文件…');
@@ -79,6 +79,9 @@
             setText('#btnSelectionCancel', 'ui.selectionCancel', '取消此次操作');
             setText('#btnSelectionReplace', 'ui.selectionReplace', '取消当前所有任务并重新添加');
             setText('#btnSelectionAppend', 'ui.selectionAppend', '加入任务队列');
+            setText('#appendConfirmTitle', 'ui.appendConfirmTitle', '追加素材前确认');
+            setText('#btnAppendConfirmCancel', 'ui.appendConfirmCancel', '不添加');
+            setText('#btnAppendConfirmOk', 'ui.appendConfirmOk', '确认并立即压缩');
             setText('.log-title', 'ui.logTitle', '运行日志');
             setText('#btnCopyDiag', 'ui.copyDiagnostic', '复制诊断信息');
             setText('#btnCopyLog', 'ui.copyLog', '复制日志');
@@ -1533,7 +1536,7 @@
      * 让答案自己弹出来，比让他去找「日志」按钮靠谱。
      */
     function failStatus(text, err) {
-        setStatus(text + '（日志已展开，可点「复制诊断信息」发给我）', 'error');
+        setStatus(text + tr('runtime.logExpandedSuffix', '（日志已展开，可点「复制诊断信息」发给我）'), 'error');
         if (err) log('error', text, err);
         try {
             if (window.LogUI && typeof window.LogUI.show === 'function') window.LogUI.show(true);
@@ -1549,35 +1552,94 @@
         });
     }
 
+    /**
+     * 备份只有在「勾选了 + 指定了目录」两者都成立时才算真的开着。
+     *
+     * 只看 settings.backup 会在「勾了但没目录」时谎报平安，而覆盖原文件是整个
+     * 流程里唯一一条不可逆的操作 —— 谎报的代价是用户的原素材。
+     */
+    function backupEffective(settings) {
+        return !!(settings.backup && settings.backupDir);
+    }
+
+    /** 确认弹层里的文件清单。超过 12 条折叠，避免弹层被几百个文件名撑爆。 */
+    var CONFIRM_LIST_LIMIT = 12;
+
+    function renderConfirmList(node, entries) {
+        var list = entries.slice(0, CONFIRM_LIST_LIMIT).map(function (e) {
+            return '<div class="confirm-item"><span class="ci-name">' + escapeHtml(e.name) +
+                '</span><span class="ci-size">' + escapeHtml(e.size) + '</span></div>';
+        }).join('');
+        if (entries.length > CONFIRM_LIST_LIMIT) {
+            list += '<div class="confirm-more">' + escapeHtml(tr('runtime.confirmMoreFiles',
+                '…以及另外 {{count}} 个文件', { count: entries.length - CONFIRM_LIST_LIMIT })) + '</div>';
+        }
+        node.innerHTML = list;
+    }
+
     function showConfirm(tasks, settings) {
         var totalSize = tasks.reduce(function (a, t) { return a + (t.meta ? t.meta.size : 0); }, 0);
-
-        // 备份只有在「勾选了 + 指定了目录」两者都成立时才算真的开着。
-        // 只看 settings.backup 会在「勾了但没目录」时谎报平安，
-        // 而这是整个流程里唯一一条不可逆的操作。
-        var backupOn = !!(settings.backup && settings.backupDir);
+        var backupOn = backupEffective(settings);
 
         var warnHtml = '';
-        warnHtml += '<b>⚠️ 本操作会直接替换原文件</b><br>';
-        warnHtml += '共 <b>' + tasks.length + '</b> 个视频，原始合计 <b>' + F.bytes(totalSize) + '</b><br>';
+        warnHtml += '<b>' + escapeHtml(tr('runtime.confirmOverwriteTitle',
+            '⚠️ 本操作会直接替换原文件')) + '</b><br>';
+        // 覆盖与「同步回 Eagle」无关：关掉那个开关只是不走 Eagle 的素材替换接口，
+        // 原路径的文件照样被替换。不写这一句，用户会拿它当保险开关用。
+        warnHtml += escapeHtml(tr('runtime.confirmOverwriteAlways',
+            '无论是否勾选「同步回 Eagle 素材」，原路径的文件都会被替换')) + '<br>';
+        warnHtml += escapeHtml(tr('runtime.confirmTotals', '共 {{count}} 个视频，原始合计 {{size}}', {
+            count: tasks.length, size: F.bytes(totalSize)
+        })) + '<br>';
         warnHtml += backupOn
-            ? '已开启备份：原文件会先复制到 <b>' + escapeHtml(settings.backupDir) + '</b>'
-            : '<b style="color:var(--danger)">未开启备份，原文件将无法恢复</b>';
+            ? escapeHtml(tr('runtime.confirmBackupOn', '已开启备份：原文件会先复制到 {{dir}}', {
+                dir: settings.backupDir
+            }))
+            : '<b style="color:var(--danger)">' + escapeHtml(tr('runtime.confirmBackupOff',
+                '未开启备份，原文件将无法恢复')) + '</b>';
         if (settings.replaceInEagle) {
-            warnHtml += '<br>完成后会同步回 Eagle 素材并刷新缩略图';
+            warnHtml += '<br>' + escapeHtml(tr('runtime.confirmEagleSync',
+                '完成后会同步回 Eagle 素材库并刷新缩略图'));
         }
         dom.confirmWarn.innerHTML = warnHtml;
 
-        var list = tasks.slice(0, 12).map(function (t) {
-            return '<div class="confirm-item"><span class="ci-name">' + escapeHtml(t.name) +
-                '</span><span class="ci-size">' + F.bytes(t.meta ? t.meta.size : 0) + '</span></div>';
-        }).join('');
-        if (tasks.length > 12) {
-            list += '<div class="confirm-more">…以及另外 ' + (tasks.length - 12) + ' 个文件</div>';
-        }
-        dom.confirmList.innerHTML = list;
+        renderConfirmList(dom.confirmList, tasks.map(function (t) {
+            return { name: t.name, size: F.bytes(t.meta ? t.meta.size : 0) };
+        }));
 
         dom.confirmMask.hidden = false;
+    }
+
+    /**
+     * 压缩执行中追加素材的独立确认。
+     *
+     * 首次确认框列的是上一批文件和当时的备份状态，对追加进来的文件没有任何告知
+     * 效力；而运行中入队的文件会被立刻编码并覆盖原路径。这里必须重新把三件事
+     * 讲清楚：新增了哪些文件、会立即压缩并覆盖、本次备份到底开没开。
+     */
+    function showAppendConfirm(items, settings) {
+        var backupOn = backupEffective(settings);
+
+        var warnHtml = '';
+        warnHtml += '<b>' + escapeHtml(tr('runtime.appendConfirmIntro',
+            '以下 {{count}} 个新素材会立即加入正在运行的队列并开始压缩', { count: items.length })) + '</b><br>';
+        warnHtml += escapeHtml(tr('runtime.appendConfirmOverwrite',
+            '压缩成功后会替换这些文件在原路径上的文件，与是否勾选「同步回 Eagle 素材」无关')) + '<br>';
+        warnHtml += backupOn
+            ? escapeHtml(tr('runtime.appendConfirmBackupOn',
+                '本次已开启备份：新增文件的原件会先复制到 {{dir}}', { dir: settings.backupDir }))
+            : '<b style="color:var(--danger)">' + escapeHtml(tr('runtime.appendConfirmBackupOff',
+                '本次未开启备份，新增文件的原件将无法恢复')) + '</b>';
+        warnHtml += '<br>' + escapeHtml(tr('runtime.appendConfirmLocked',
+            '压缩进行中无法更改备份设置。需要备份请先「停止并取消」，设置好备份位置后重新开始。'));
+        dom.appendConfirmWarn.innerHTML = warnHtml;
+
+        // 追加时还没 ffprobe 过，拿不到体积，只列文件名。
+        renderConfirmList(dom.appendConfirmList, items.map(function (it) {
+            return { name: path.basename(it.filePath), size: '' };
+        }));
+
+        dom.appendConfirmMask.hidden = false;
     }
 
     function start() {
@@ -1729,11 +1791,13 @@
                 }).length;
 
                 if (state.cancelToken.cancelled) {
-                    setStatus('已取消', 'warn');
+                    setStatus(tr('runtime.cancelled', '已取消'), 'warn');
                 } else if (failed) {
-                    setStatus('完成 ' + done + ' 个，' + failed + ' 个未成功', 'warn');
+                    setStatus(tr('runtime.finishedWithFailures', '完成 {{done}} 个，{{failed}} 个未成功', {
+                        done: done, failed: failed
+                    }), 'warn');
                 } else {
-                    setStatus('全部完成：' + done + ' 个', 'ok');
+                    setStatus(tr('runtime.finishedAll', '全部完成：{{done}} 个', { done: done }), 'ok');
                 }
 
                 if (eagle && eagle.notification && done > 0 && !state.cancelToken.cancelled) {
@@ -2185,11 +2249,40 @@
         if (dom.selectionMask) dom.selectionMask.hidden = true;
     }
 
+    /**
+     * 等待用户确认的追加素材。
+     *
+     * 只在「压缩执行中追加」这条路径上有值。非运行中追加只是把文件放进列表，
+     * 真正开跑前还要过一遍首次确认框，不需要在这里多拦一次。
+     */
+    var pendingAppend = null;
+
     function appendSelectionToQueue() {
         if (!pendingSelection) return;
         var items = pendingSelection.items;
         dismissSelectionDecision();
+
+        // 运行中入队 = 立即编码 + 覆盖原文件。必须单独确认，不能沿用上一批的确认结果。
+        if (state.running) {
+            pendingAppend = items;
+            showAppendConfirm(items, readSettingsFromUI());
+            return;
+        }
         addEagleItems(items, 'append');
+    }
+
+    function confirmAppend() {
+        var items = pendingAppend;
+        pendingAppend = null;
+        dom.appendConfirmMask.hidden = true;
+        if (!items) return;
+        addEagleItems(items, 'append');
+    }
+
+    function cancelAppend() {
+        pendingAppend = null;
+        dom.appendConfirmMask.hidden = true;
+        setStatus(tr('runtime.appendCancelled', '已取消，未添加新素材'), 'ok');
     }
 
     function replaceQueueWithSelection() {
@@ -2264,7 +2357,7 @@
             .then(function (result) {
                 if (!result || !result.filePaths || !result.filePaths.length) return;
                 var n = addFiles(result.filePaths, null);
-                if (n > 0) setStatus('已添加 ' + n + ' 个文件', 'ok');
+                if (n > 0) setStatus(tr('runtime.addedFiles', '已添加 {{count}} 个文件', { count: n }), 'ok');
             })
             .catch(function () { /* 用户取消 */ });
     }
@@ -2285,7 +2378,9 @@
 
                 refreshBackupUI();
                 saveSettings();
-                setStatus('备份位置已设置：' + state.settings.backupDir, 'ok');
+                setStatus(tr('runtime.backupDirSet', '备份位置已设置：{{dir}}', {
+                    dir: state.settings.backupDir
+                }), 'ok');
                 log('info', '备份目录设置为 ' + state.settings.backupDir + '，已自动开启备份');
             })
             .catch(function () { /* 用户取消 */ });
@@ -2327,6 +2422,8 @@
         dom.btnSelectionCancel.addEventListener('click', dismissSelectionDecision);
         dom.btnSelectionReplace.addEventListener('click', replaceQueueWithSelection);
         dom.btnSelectionAppend.addEventListener('click', appendSelectionToQueue);
+        dom.btnAppendConfirmCancel.addEventListener('click', cancelAppend);
+        dom.btnAppendConfirmOk.addEventListener('click', confirmAppend);
 
         // 压缩方式切换
         document.querySelectorAll('#modeTabs button').forEach(function (b) {
@@ -2379,7 +2476,7 @@
             if (!files || !files.length) return;
             var paths = Array.prototype.map.call(files, function (f) { return f.path; });
             var n = addFiles(paths, null);
-            if (n > 0) setStatus('已添加 ' + n + ' 个文件', 'ok');
+            if (n > 0) setStatus(tr('runtime.addedFiles', '已添加 {{count}} 个文件', { count: n }), 'ok');
         });
     }
 
@@ -2703,7 +2800,12 @@
             selectionList: $('selectionList'),
             btnSelectionCancel: $('btnSelectionCancel'),
             btnSelectionReplace: $('btnSelectionReplace'),
-            btnSelectionAppend: $('btnSelectionAppend')
+            btnSelectionAppend: $('btnSelectionAppend'),
+            appendConfirmMask: $('appendConfirmMask'),
+            appendConfirmWarn: $('appendConfirmWarn'),
+            appendConfirmList: $('appendConfirmList'),
+            btnAppendConfirmOk: $('btnAppendConfirmOk'),
+            btnAppendConfirmCancel: $('btnAppendConfirmCancel')
         };
 
         // 依赖自检必须放在最前面。
@@ -2898,6 +3000,9 @@
         init: init,
         applyTheme: applyTheme,
         onShow: onShow,
+        // 日志面板要把设置文件的位置一并显示出来，好让用户知道插件在硬盘上
+        // 留了什么、卸载后该删哪儿。这是对外接口，不是 _internal 的测试出口。
+        settingsPath: settingsFilePath,
         _state: state,
         // 仅供本地回归调用：验证汇总/单任务的展示状态，不绕开实际业务逻辑。
         _internal: {

@@ -111,6 +111,36 @@ if "$NODE" tools/check-i18n.js; then :; else bad "语言包检查未通过"; fi
 step "版本与文档"
 if "$NODE" tools/check-docs.js; then :; else bad "简述文档检查未通过"; fi
 
+# ---- 5a. 提交文案是否跟得上 docs/ --------------------------------------------
+# SUBMISSION.md 是 docs/ 的产物，但生成是手动的 —— 它在 1.1.0 上停了整整两个
+# 版本没人发现，因为改 docs/ 不会让任何检查变红。这里重新生成一份到临时文件
+# 再比对，内容不一致就报错，把「忘了重跑生成器」变成一个当场可见的失败。
+step "提交文案"
+if [ -f tools/gen-submission.js ]; then
+    TMP_SUB="$(mktemp -t submission)"
+    # 生成器只写死路径 SUBMISSION.md，先备份原件、生成、比对、还原。
+    cp SUBMISSION.md "$TMP_SUB" 2>/dev/null || : > "$TMP_SUB"
+    if "$NODE" tools/gen-submission.js >/dev/null 2>&1; then
+        if diff -q "$TMP_SUB" SUBMISSION.md >/dev/null 2>&1; then
+            ok "SUBMISSION.md 与 docs/ 一致（$("$NODE" -p "require('./manifest.json').version")）"
+        else
+            # 已经就地更新了，说清楚要把它一并提交，而不是让人再跑一次
+            ok "SUBMISSION.md 落后于 docs/，已重新生成 —— 记得一起提交"
+        fi
+    else
+        bad "tools/gen-submission.js 执行失败"
+        cp "$TMP_SUB" SUBMISSION.md 2>/dev/null || true
+    fi
+    rm -f "$TMP_SUB"
+else
+    bad "tools/gen-submission.js 不存在"
+fi
+
+# ---- 5b. 商店提交字段 -------------------------------------------------------
+# 名称和描述过去只填在提交表单里，仓库里没有副本，超限只能等审核告诉你。
+step "商店提交字段"
+if "$NODE" tools/check-store.js; then :; else bad "商店名称/描述检查未通过"; fi
+
 # ---- 6. 打包卫生 ------------------------------------------------------------
 # .eagleplugin 是整个目录打包，开发辅助文件混进去会被审核挑出来。
 step "打包卫生"
@@ -127,20 +157,25 @@ else
     fi
 fi
 
-# .eagleplugin 由 Eagle 对整个插件目录打包生成，sync-to-eagle.sh 同步进去的东西
-# 就是将来会被打包的东西。开发期目录（tests/tools/docs）没被排除的话会一起进包。
-if [ -f sync-to-eagle.sh ]; then
-    UNEXCLUDED=""
-    for d in tests tools docs .idea .codebuddy; do
-        [ -e "$d" ] || continue
-        # 匹配 sync-to-eagle.sh 的 EXCLUDES 数组里的一行： '<name>'
-        grep -qE "^[[:space:]]*'$d'[[:space:]]*$" sync-to-eagle.sh || UNEXCLUDED="$UNEXCLUDED $d"
-    done
-    if [ -n "$UNEXCLUDED" ]; then
-        printf '  \033[33m!\033[0m sync-to-eagle.sh 未排除开发期目录：%s —— 会被同步进 Eagle 并进入 .eagleplugin\n' "$UNEXCLUDED"
+# 安装包内容由 tools/build-package.sh 的白名单决定。这里核对它的清单里没有
+# 任何开发期产物 —— 上一次投稿就是因为 tests/ tools/ reports/ SUBMISSION.md
+# 全都进了包而被驳回。
+if [ -x tools/build-package.sh ]; then
+    MANIFEST_LIST="$(./tools/build-package.sh --list 2>/dev/null)"
+    if [ -z "$MANIFEST_LIST" ]; then
+        bad "tools/build-package.sh --list 没有输出，无法核对安装包内容"
     else
-        ok "sync-to-eagle.sh 已排除开发期目录"
+        # 顶层目录/文件名必须落在这个集合里。新增运行时文件时同步改这里和白名单。
+        STRAY="$(printf '%s\n' "$MANIFEST_LIST" | cut -d/ -f1 | sort -u |
+            grep -vxE 'manifest\.json|index\.html|logo\.png|LICENSE|css|js|_locales' || true)"
+        if [ -n "$STRAY" ]; then
+            bad "安装包清单里有非运行时内容：$(printf '%s' "$STRAY" | tr '\n' ' ')"
+        else
+            ok "安装包清单只含运行时内容（$(printf '%s\n' "$MANIFEST_LIST" | wc -l | tr -d ' ') 个文件）"
+        fi
     fi
+else
+    bad "tools/build-package.sh 不存在或没有执行权限"
 fi
 
 # ---- 结论 -------------------------------------------------------------------

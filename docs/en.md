@@ -3,7 +3,7 @@
 <!-- section:overview -->
 ## Overview
 
-A local batch video compression plugin for Eagle. It picks up the videos you have selected, re-encodes them with FFmpeg, and can replace the original Eagle item once compression succeeds.
+A local batch video compression plugin for Eagle. It picks up the videos you have selected — or local files you drop into the window — re-encodes them with FFmpeg, and replaces the file at its original path once compression succeeds.
 
 - Everything runs locally. Video files are never uploaded and no video metadata is sent to any server.
 - H.265/HEVC by default, with H.264, AV1, VP9, and remux-only options.
@@ -12,22 +12,30 @@ A local batch video compression plugin for Eagle. It picks up the videos you hav
 - Controls for resolution, frame rate, audio, encoding speed, concurrency, and 10-bit source handling.
 - HDR sources are detected and their colour metadata is carried through re-encoding; already-compressed files are marked so you do not run a second lossy pass by accident.
 - Optional GPU hardware encoding (NVIDIA NVENC, Intel Quick Sync, AMD AMF), used automatically when suitable hardware is present and falling back to CPU software encoding otherwise.
-- Backup is off by default and cannot be enabled until you pick a backup folder.
+- Backup is off by default and cannot be enabled until you pick a backup folder. Without it there is no copy of the original.
 - Settings persist, the UI follows Eagle's theme, and eight languages are available.
 
 <!-- section:usage -->
 ## How to use
 
-**Requirements**: Eagle with the FFmpeg dependency available. A local FFmpeg/FFprobe installation is used as a fallback. macOS is the currently verified platform.
+**Before you start**
+
+This plugin needs a working FFmpeg **and** ffprobe. Both are required:
+
+- Recommended: install the **FFmpeg** dependency plugin in Eagle. This plugin picks it up automatically.
+- Alternatively, install FFmpeg yourself (it ships with ffprobe); the plugin falls back to your system installation.
+- If neither is found, compression cannot run: the status bar reports that FFmpeg is unavailable and the runtime log opens automatically — use **Copy diagnostics** to see which paths were searched.
+
+macOS is the currently verified platform.
 
 **Basic workflow**
 
 1. Select one or more videos in Eagle.
-2. Open **Video Compress**. The selected videos are imported into the task list automatically.
+2. Open **Video Compress**. The selected videos are imported into the task list automatically; you can also drop local video files into the window.
 3. Choose a codec and a compression mode. H.265 with CRF 28 is the default.
 4. Review the original size, estimated output size, and storage-change summary.
 5. If you want to keep the original file, choose a backup folder first, then enable backup.
-6. Click **Start compression** and confirm.
+6. Click **Start compression**, read the overwrite and backup notes in the confirmation dialog, then confirm.
 
 **Choosing a compression mode**
 
@@ -58,10 +66,37 @@ The **Hardware acceleration** dropdown has three options:
 
 - You can click **Stop and cancel** at any time. Running FFmpeg processes are terminated, tasks that have not started are marked cancelled immediately, and originals are left untouched.
 - If you change the Eagle selection and reopen the plugin mid-run, it asks whether to cancel the action, replace the current queue, or append to it. Work in progress is never discarded silently.
-- Replacing the original file is lossy and irreversible. Keep an independent copy of irreplaceable media.
+- Choosing **Add to task queue** asks for one more confirmation: appended items start compressing immediately and overwrite their originals, so the dialog lists exactly which files are being added and whether backup is actually on for this run. Backup settings cannot be changed while compression is running.
+
+**How files are replaced**
+
+- On success, the file at its original path is replaced — including local files you dropped into the window. This is lossy and irreversible.
+- Turning off **Sync back to the Eagle library** still replaces the original. That option does not control overwriting; it only decides whether the linked Eagle item is updated and its thumbnail refreshed. It cannot be used to keep the source file.
+- To keep originals, click **Choose backup location…** first, then make sure **Back up original before compression** is checked. Without a folder the checkbox stays disabled and no backup happens.
+- Files that do not get smaller are skipped and their originals left untouched.
+- For irreplaceable media, keep an independent copy of your own.
+
+**Data the plugin keeps, and how to remove it**
+
+- The plugin writes exactly two files on your machine: settings at `~/Library/Application Support/Eagle 视频压缩/settings.json` and the runtime log at `~/Library/Logs/Eagle 视频压缩/plugin.log`. On Windows both live under `%APPDATA%\Eagle 视频压缩\`.
+- Both paths are shown at the top of the "Runtime log" panel inside the plugin, so you can read and copy them directly.
+- "Reset settings" in the top bar only restores the defaults; it does not delete the file.
+- Uninstalling the plugin does not remove these files. To clear everything, delete the two folders above by hand.
+- Temporary files created while compressing are written next to the source file and cleaned up when the run ends or at the next start, so they do not accumulate.
 
 <!-- section:changelog -->
 ## Changelog
+
+### 1.1.2
+
+- Fixed: items appended to a running queue started compressing and replaced their originals immediately, while the prompt showed only a count and file names. Appending during a run now opens its own confirmation that lists the new files, states they will be compressed at once and replace the files at their original paths, and reports this run's actual backup state — with an explicit warning when the originals cannot be recovered.
+- Fixed: the overwrite, backup and unrecoverable warnings shown before a run were hard-coded Simplified Chinese and invisible in every other language. They now come from the locale files, with full translations for all eight languages.
+- Fixed: the wording implied the original was only replaced when "Sync back to the Eagle library" was on. The file at the original path is replaced either way; that option only decides whether Eagle's replace API updates the linked item and its thumbnail. The interface and the docs have been corrected.
+- Improved: the package is now built from an allow-list and contains only the program, styles, icon, locales and the licence.
+- Improved: the plugin store name and description have a single source of truth, with per-language length limits checked before submission.
+- Improved: the usage section now opens with a "before you start" block stating that a working FFmpeg and ffprobe are both required, and what happens when neither is found.
+- Fixed: the "Start compression" and "Stop and cancel" buttons jumped sideways once the summary figures were calculated. In a narrow window the buttons wrapped to a second row while the spacer that pushed them right stayed on the first, leaving them flush left. They now align right on their own, wrapped or not.
+- Improved: the log panel now shows the full path of both the settings file and the log file, and the usage section gained a "Data the plugin keeps" block stating what is left behind after uninstalling and how to remove it.
 
 ### 1.1.1
 

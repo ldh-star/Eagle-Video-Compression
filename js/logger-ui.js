@@ -12,6 +12,21 @@
 
     function $(id) { return document.getElementById(id); }
 
+    // 这个面板以前整屏中文硬编码，切到英文界面照样弹「已复制到剪贴板」。
+    // i18n.js 在本文件之前加载，但仍然留中文兜底：logger-ui 要在其它模块
+    // 都挂掉的时候还能用，不能反过来依赖翻译层就绪。
+    function tr(key, fallback, vars) {
+        try {
+            if (window.I18n && typeof window.I18n.t === 'function') {
+                return window.I18n.t(key, fallback, vars);
+            }
+        } catch (e) { /* 落到下面的中文兜底 */ }
+        if (!vars) return fallback;
+        return String(fallback).replace(/{{\s*([\w.]+)\s*}}/g, function (_, name) {
+            return vars[name] === undefined || vars[name] === null ? '' : String(vars[name]);
+        });
+    }
+
     function render() {
         if (!visible || !body) return;
         var txt = (window.Logger && window.Logger.tail(300)) || '(日志模块未加载)';
@@ -28,13 +43,39 @@
             render();
             // 转码过程中日志会持续增加，定时刷新
             if (!timer) timer = setInterval(render, 1000);
-            var p = window.Logger && window.Logger.logPath();
-            var el = $('logPath');
-            if (el) el.textContent = p ? ('日志文件: ' + p) : '日志文件: 不可用（无磁盘权限）';
+            renderPaths();
         } else if (timer) {
             clearInterval(timer);
             timer = null;
         }
+    }
+
+    /**
+     * 把插件在硬盘上留下的两个文件都列出来。
+     *
+     * 以前这里只显示日志路径。设置文件同样是卸载后不会被清掉的残留，
+     * 用户没有任何途径知道它在哪儿 —— 想彻底删干净只能靠猜。
+     * 审核标准的「卸载与清理」也要求把保留的数据讲明白。
+     */
+    function renderPaths() {
+        var el = $('logPath');
+        if (!el) return;
+        var lines = [];
+        var logFile = window.Logger && window.Logger.logPath();
+        lines.push(logFile
+            ? tr('ui.logFilePath', '日志文件：{{path}}', { path: logFile })
+            : tr('ui.logFileUnavailable', '日志文件：不可用（无磁盘权限）'));
+
+        var settingsFile = null;
+        try {
+            if (window.App && typeof window.App.settingsPath === 'function') {
+                settingsFile = window.App.settingsPath();
+            }
+        } catch (e) { /* app.js 没起来就只显示日志路径 */ }
+        if (settingsFile) {
+            lines.push(tr('ui.settingsFilePath', '设置文件：{{path}}', { path: settingsFile }));
+        }
+        el.textContent = lines.join('　');
     }
 
     /** 复制文本，优先用 Eagle/浏览器的剪贴板 API，失败就退回 execCommand */
@@ -55,30 +96,36 @@
         try {
             if (navigator.clipboard && navigator.clipboard.writeText) {
                 navigator.clipboard.writeText(text).then(function () {
-                    flash('已复制到剪贴板');
+                    flash(tr('ui.copied', '已复制到剪贴板'));
                 }, function () {
-                    flash(fallback() ? '已复制到剪贴板' : '复制失败，请手动选择文本');
+                    flash(fallback()
+                        ? tr('ui.copied', '已复制到剪贴板')
+                        : tr('ui.copyFailed', '复制失败，请手动选择文本'));
                 });
                 return;
             }
         } catch (e) { /* 走 fallback */ }
-        flash(fallback() ? '已复制到剪贴板' : '复制失败，请手动选择文本');
+        flash(fallback()
+            ? tr('ui.copied', '已复制到剪贴板')
+            : tr('ui.copyFailed', '复制失败，请手动选择文本'));
     }
 
     var flashTimer = null;
     function flash(msg) {
         var el = $('logPath');
         if (!el) return;
-        var old = el.textContent;
         el.textContent = msg;
         if (flashTimer) clearTimeout(flashTimer);
-        flashTimer = setTimeout(function () { el.textContent = old; }, 1800);
+        // 恢复时重新算一遍路径，而不是把提示出现前的 textContent 存下来再写回去：
+        // 1.8 秒内连点两次，第二次存下来的「旧值」就是第一条提示本身，
+        // 路径会被一句提示语永久顶掉。
+        flashTimer = setTimeout(renderPaths, 1800);
     }
 
     /** 在文件管理器里显示日志文件 */
     function revealLog() {
         var p = window.Logger && window.Logger.logPath();
-        if (!p) { flash('日志文件不可用'); return; }
+        if (!p) { flash(tr('ui.logUnavailable', '日志文件不可用')); return; }
         var done = false;
         try {
             // 优先用 Eagle 的 shell API
@@ -95,13 +142,18 @@
                 var proc = window.require ? window.require('process') : null;
                 if (cp) {
                     if (proc && proc.platform === 'darwin') cp.spawn('open', ['-R', p]);
-                    else if (proc && proc.platform === 'win32') cp.spawn('explorer', ['/select,', p]);
+                    // explorer 的 /select, 和路径必须拼成**一个**参数。拆成两个的话
+                    // explorer 认不出这是选中指令，会默默打开「文档」文件夹，
+                    // 而且退出码正常，这边还会显示「已打开日志目录」。
+                    else if (proc && proc.platform === 'win32') cp.spawn('explorer', ['/select,' + p]);
                     else cp.spawn('xdg-open', [require('path').dirname(p)]);
                     done = true;
                 }
             } catch (e) { /* 忽略 */ }
         }
-        flash(done ? '已打开日志目录' : '无法自动打开，日志路径已显示在上方');
+        flash(done
+            ? tr('ui.logFolderOpened', '已打开日志目录')
+            : tr('ui.logFolderOpenFailed', '无法自动打开，日志路径已显示在上方'));
     }
 
     /**

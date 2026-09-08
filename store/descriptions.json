@@ -1,0 +1,37 @@
+{
+  "_comment": "Eagle 插件中心提交表单里的『名称』与『描述』字段，八个语系各一份。这两个字段以前只存在于提交表单里，1.1.1 因此被审核挑出英文 255 字符、简体中文 134 字符双双超限。现在以本文件为唯一事实来源，长度由 tools/check-store.js 卡住。名称必须与 _locales/<lang>.json 的 manifest.app.name 一致。",
+  "_limits": "CJK 语系（zh_CN / zh_TW / ja_JP / ko_KR）100 字符；其余语系 200 字符。",
+
+  "zh_CN": {
+    "name": "视频压缩",
+    "description": "在本机批量压缩 Eagle 中的视频或拖入的本地文件，支持多种编码，以及画质优先、指定码率和目标文件大小三种模式。需要 FFmpeg。"
+  },
+  "zh_TW": {
+    "name": "影片壓縮",
+    "description": "在本機批次壓縮 Eagle 中的影片或拖入的本機檔案，支援多種編碼，以及畫質優先、指定位元率與目標檔案大小三種模式。需要 FFmpeg。"
+  },
+  "en": {
+    "name": "Video Compress",
+    "description": "Batch-compress videos from Eagle or local files you drop in, all on your own machine. Multiple codecs, plus quality-first (CRF), target bitrate and target file size modes. Requires FFmpeg."
+  },
+  "ja_JP": {
+    "name": "動画圧縮",
+    "description": "Eagle の動画やドラッグした素材をローカルで一括圧縮します。複数のコーデックと、画質優先・ビットレート指定・目標サイズの3方式に対応。FFmpeg が必要です。"
+  },
+  "ko_KR": {
+    "name": "동영상 압축",
+    "description": "Eagle의 동영상이나 끌어다 놓은 파일을 내 컴퓨터에서 일괄 압축합니다. 여러 코덱과 화질 우선·비트레이트 지정·목표 크기 방식을 지원합니다. FFmpeg 필요."
+  },
+  "de_DE": {
+    "name": "Video komprimieren",
+    "description": "Komprimiert Videos aus Eagle oder hineingezogene lokale Dateien lokal im Stapel. Mehrere Codecs sowie die Modi Qualität zuerst (CRF), Zielbitrate und Zieldateigröße. FFmpeg wird benötigt."
+  },
+  "es_ES": {
+    "name": "Comprimir vídeo",
+    "description": "Comprime por lotes los vídeos de Eagle o archivos locales que arrastres, en tu equipo. Varios códecs y tres modos: calidad primero (CRF), tasa de bits objetivo y tamaño objetivo. Requiere FFmpeg."
+  },
+  "ru_RU": {
+    "name": "Сжатие видео",
+    "description": "Пакетное сжатие видео из Eagle или перетащенных локальных файлов прямо на вашем компьютере. Несколько кодеков и три режима: качество (CRF), целевой битрейт и целевой размер файла. Нужен FFmpeg."
+  }
+}
