@@ -11,7 +11,7 @@ A local batch video compression plugin for Eagle. It picks up the videos you hav
 - CRF size estimates come from real stratified sample encodes, so the UI shows a range instead of a misleading exact number.
 - Controls for resolution, frame rate, audio, encoding speed, concurrency, and 10-bit source handling.
 - HDR sources are detected and their colour metadata is carried through re-encoding; already-compressed files are marked so you do not run a second lossy pass by accident.
-- Optional GPU hardware encoding (NVIDIA NVENC, Intel Quick Sync, AMD AMF), used automatically when suitable hardware is present and falling back to CPU software encoding otherwise.
+- Optional GPU hardware encoding: Apple VideoToolbox on macOS, and NVIDIA NVENC, Intel Quick Sync or AMD AMF on Windows. Used automatically when suitable hardware is present, falling back to CPU software encoding otherwise.
 - Backup is off by default and cannot be enabled until you pick a backup folder. Without it there is no copy of the original.
 - Settings persist, the UI follows Eagle's theme, and eight languages are available.
 
@@ -25,8 +25,6 @@ This plugin needs a working FFmpeg **and** ffprobe. Both are required:
 - Recommended: install the **FFmpeg** dependency plugin in Eagle. This plugin picks it up automatically.
 - Alternatively, install FFmpeg yourself (it ships with ffprobe); the plugin falls back to your system installation.
 - If neither is found, compression cannot run: the status bar reports that FFmpeg is unavailable and the runtime log opens automatically — use **Copy diagnostics** to see which paths were searched.
-
-macOS is the currently verified platform.
 
 **Basic workflow**
 
@@ -55,10 +53,10 @@ The **Hardware acceleration** dropdown has three options:
 | Force GPU hardware encoding | Hardware encoding only; fails if this machine has no usable hardware encoder |
 | CPU software encoding only | Software encoding throughout, the most predictable result |
 
-- NVIDIA NVENC, Intel Quick Sync Video, and AMD AMF are supported. Hardware encoding is typically 3–5× faster and uses far less CPU, with quality at a given bitrate about equal to software encoding.
+- Apple VideoToolbox is used on macOS; NVIDIA NVENC, Intel Quick Sync Video and AMD AMF require Windows with a matching GPU. Hardware encoding is there to cut wall-clock time and CPU load, and how much it helps depends on the source, the settings and the GPU. Quality at a given bitrate can differ from software encoding, so pick **CPU software encoding only** when quality matters most.
 - VP9 has no hardware implementation and always uses the CPU.
 - A failed hardware encode is retried once on the CPU rather than failing the task outright.
-- On macOS, if none of the three is available, the plugin falls back to software encoding. This is expected.
+- When no usable hardware encoder is found at all, **Auto** simply runs software encoding. This is expected.
 
 **Storage-change colours**: green means the result is smaller than the original, red means larger, and the normal text colour means it is nearly unchanged or the estimate range crosses the original size.
 
@@ -92,8 +90,6 @@ The **Hardware acceleration** dropdown has three options:
 - Fixed: items appended to a running queue started compressing and replaced their originals immediately, while the prompt showed only a count and file names. Appending during a run now opens its own confirmation that lists the new files, states they will be compressed at once and replace the files at their original paths, and reports this run's actual backup state — with an explicit warning when the originals cannot be recovered.
 - Fixed: the overwrite, backup and unrecoverable warnings shown before a run were hard-coded Simplified Chinese and invisible in every other language. They now come from the locale files, with full translations for all eight languages.
 - Fixed: the wording implied the original was only replaced when "Sync back to the Eagle library" was on. The file at the original path is replaced either way; that option only decides whether Eagle's replace API updates the linked item and its thumbnail. The interface and the docs have been corrected.
-- Improved: the package is now built from an allow-list and contains only the program, styles, icon, locales and the licence.
-- Improved: the plugin store name and description have a single source of truth, with per-language length limits checked before submission.
 - Improved: the usage section now opens with a "before you start" block stating that a working FFmpeg and ffprobe are both required, and what happens when neither is found.
 - Fixed: the "Start compression" and "Stop and cancel" buttons jumped sideways once the summary figures were calculated. In a narrow window the buttons wrapped to a second row while the spacer that pushed them right stayed on the first, leaving them flush left. They now align right on their own, wrapped or not.
 - Improved: the log panel now shows the full path of both the settings file and the log file, and the usage section gained a "Data the plugin keeps" block stating what is left behind after uninstalling and how to remove it.
@@ -109,6 +105,7 @@ The **Hardware acceleration** dropdown has three options:
 - Improved: VP9 now encodes with multi-threaded tiles and rows — about 2.2× faster on 1080p footage.
 - Improved: committing the result uses a rename instead of a full copy; writing back a 1 GB file went from about 1 second to nearly nothing.
 - Improved: encoder threads are budgeted across the machine, cutting total CPU use by roughly 6–9% when several tasks run at once.
+- Added: Apple VideoToolbox hardware encoding on macOS (H.264 and H.265). **Auto** uses it when it is detected.
 - Added: on machines with 24 cores or more, concurrency can be set to 6 or 8.
 
 ### 1.1.0

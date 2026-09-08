@@ -177,6 +177,7 @@ $NODE tests/test_queue_intake.js        # cancellation, queue intake, atomic com
 
 **Added**
 
+- **Apple VideoToolbox on macOS.** 1.1.0 shipped hardware encoding for NVENC, Quick Sync and AMF — none of which exist on a Mac. Their encoder names never appear in a Mac's `-encoders` output, so every Mac saw "no hardware encoder detected" and ran every task on the CPU. VideoToolbox is now a fourth family with `h264_videotoolbox` and `hevc_videotoolbox`, its own CRF→`-q:v` mapping (the VT quality scale is not QP), and hardware decoding. It sits last in the probe order, which changes nothing on Windows since the other three can never match on macOS anyway.
 - **Concurrency can go to 6 or 8 on machines with 24 or more cores.** The worker ceiling was a flat 4; it is now 8 on sufficiently large machines, with the dropdown extending to match.
 
 ### 1.1.0

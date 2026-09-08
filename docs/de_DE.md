@@ -11,7 +11,7 @@ Ein lokales Plugin für die Stapelkomprimierung von Videos in Eagle. Es lädt di
 - Die Größenschätzung im CRF-Modus beruht auf echten Stichproben-Kodierungen. Angezeigt wird deshalb ein Bereich statt eines irreführenden exakten Werts.
 - Einstellbar sind Auflösung, Bildrate, Audio, Kodiergeschwindigkeit, Parallelität und der Umgang mit 10-Bit-Quellen.
 - HDR-Quellen werden erkannt, und die Farbmetadaten bleiben beim Neukodieren erhalten. Bereits komprimierte Dateien werden markiert, damit kein zweiter verlustbehafteter Durchgang aus Versehen passiert.
-- Optionale GPU-Hardwarekodierung (NVIDIA NVENC, Intel Quick Sync, AMD AMF), die bei vorhandener geeigneter Hardware automatisch genutzt wird und sonst auf die CPU-Softwarekodierung zurückfällt.
+- Optionale GPU-Hardwarekodierung: Apple VideoToolbox unter macOS sowie NVIDIA NVENC, Intel Quick Sync und AMD AMF unter Windows. Wird bei vorhandener geeigneter Hardware automatisch genutzt und fällt sonst auf die CPU-Softwarekodierung zurück.
 - Die Sicherung ist standardmäßig deaktiviert und lässt sich erst nach Auswahl eines Sicherungsordners einschalten. Bleibt sie aus, existiert keine Kopie der Originaldatei.
 - Einstellungen bleiben erhalten, die Oberfläche folgt dem Eagle-Design, acht Sprachen werden unterstützt.
 
@@ -25,8 +25,6 @@ Das Plugin benötigt **sowohl** ein funktionierendes FFmpeg als auch ffprobe.
 - Empfohlen: Installieren Sie in Eagle das Abhängigkeits-Plugin „FFmpeg“. Das Plugin nutzt es automatisch.
 - Alternativ können Sie FFmpeg (inklusive ffprobe) selbst systemweit installieren; das Plugin greift dann auf diese Installation zurück.
 - Wird keines von beiden gefunden, ist keine Komprimierung möglich: Die Statusleiste meldet, dass FFmpeg nicht verfügbar ist, das Protokoll klappt automatisch auf, und über „Diagnose kopieren“ sehen Sie die durchsuchten Pfade.
-
-Verifizierte Plattform ist derzeit macOS.
 
 **Grundlegender Ablauf**
 
@@ -55,10 +53,10 @@ Die Auswahl „Hardwarebeschleunigung“ bietet drei Optionen:
 | GPU-Hardwarekodierung erzwingen | Ausschließlich Hardwarekodierung; schlägt fehl, wenn kein brauchbarer Hardware-Encoder vorhanden ist |
 | Nur CPU-Softwarekodierung | Durchgehend Softwarekodierung, das am besten vorhersehbare Ergebnis |
 
-- Unterstützt werden NVIDIA NVENC, Intel Quick Sync Video und AMD AMF. Hardwarekodierung ist typischerweise 3–5× schneller und beansprucht die CPU weit weniger; bei gleicher Bitrate ist die Qualität etwa gleichauf mit der Softwarekodierung.
+- Unter macOS kommt Apple VideoToolbox zum Einsatz; NVIDIA NVENC, Intel Quick Sync Video und AMD AMF setzen Windows mit passender GPU voraus. Hardwarekodierung soll Laufzeit und CPU-Last senken; wie stark, hängt von Quelle, Einstellungen und GPU ab. Die Qualität bei gleicher Bitrate kann von der Softwarekodierung abweichen — wenn Qualität an erster Stelle steht, wählen Sie „Nur CPU-Softwarekodierung“.
 - VP9 hat keine Hardware-Implementierung und läuft immer über die CPU.
 - Eine fehlgeschlagene Hardwarekodierung wird einmal auf der CPU wiederholt, statt die Aufgabe sofort als fehlgeschlagen zu markieren.
-- Unter macOS fällt das Plugin auf Softwarekodierung zurück, wenn keine der drei verfügbar ist. Das ist erwartetes Verhalten.
+- Findet sich überhaupt kein nutzbarer Hardware-Encoder, läuft „Automatisch“ einfach als Softwarekodierung. Das ist erwartetes Verhalten.
 
 **Farben der Speicheränderung**: Grün bedeutet kleiner als das Original, Rot größer, und die normale Textfarbe bedeutet nahezu unverändert oder dass der Schätzbereich die Originalgröße überschneidet.
 
@@ -92,8 +90,6 @@ Die Auswahl „Hardwarebeschleunigung“ bietet drei Optionen:
 - Behoben: Während eines Laufs angehängte Elemente wurden sofort komprimiert und ersetzten ihre Originale, obwohl der Hinweis nur Anzahl und Dateinamen zeigte. Das Anhängen während eines Laufs öffnet jetzt einen eigenen Bestätigungsdialog, der die neuen Dateien auflistet, das sofortige Komprimieren und Ersetzen der Dateien im ursprünglichen Pfad benennt und den tatsächlichen Sicherungsstatus dieses Laufs angibt — mit deutlicher Warnung, wenn die Originale nicht wiederhergestellt werden können.
 - Behoben: Die Warnungen zu Überschreiben, Sicherung und Unwiederbringlichkeit vor dem Start waren fest in vereinfachtem Chinesisch hinterlegt und in allen anderen Sprachen unsichtbar. Sie stammen jetzt aus den Sprachdateien, mit vollständigen Übersetzungen für alle acht Sprachen.
 - Behoben: Die Formulierung legte nahe, dass das Original nur bei aktivem „Nach Abschluss mit der Eagle-Bibliothek abgleichen“ ersetzt wird. Die Datei im ursprünglichen Pfad wird in jedem Fall ersetzt; die Option entscheidet nur, ob das verknüpfte Element und sein Vorschaubild über die Ersetzungs-API von Eagle aktualisiert werden. Oberfläche und Dokumentation wurden korrigiert.
-- Verbessert: Das Paket wird jetzt aus einer Positivliste erstellt und enthält nur Programm, Stile, Symbol, Sprachdateien und die Lizenz.
-- Verbessert: Name und Beschreibung für den Plugin-Store haben eine einzige Quelle, und die sprachabhängigen Längenbegrenzungen werden vor der Einreichung geprüft.
 - Verbessert: Die Bedienung beginnt nun mit „Vor der ersten Nutzung“ und benennt, dass sowohl FFmpeg als auch ffprobe erforderlich sind und was passiert, wenn keines gefunden wird.
 - Behoben: Die Schaltflächen „Komprimierung starten“ und „Anhalten und abbrechen“ sprangen seitlich, sobald die Zusammenfassung berechnet war. In einem schmalen Fenster rutschten sie in eine zweite Zeile, während das Füllelement, das sie nach rechts schob, in der ersten blieb — die Schaltflächen standen dann links. Sie richten sich jetzt selbst rechts aus, mit oder ohne Umbruch.
 - Verbessert: Das Protokollfenster zeigt jetzt die vollständigen Pfade von Einstellungs- und Protokolldatei, und die Bedienhinweise haben einen Abschnitt „Gespeicherte Daten und deren Entfernung“ erhalten, der beschreibt, was nach dem Deinstallieren zurückbleibt und wie es sich entfernen lässt.
@@ -109,6 +105,7 @@ Die Auswahl „Hardwarebeschleunigung“ bietet drei Optionen:
 - Verbessert: VP9 kodiert jetzt mit mehreren Threads zugleich; bei 1080p-Material war es im Test etwa 2,2× schneller.
 - Verbessert: Das Übernehmen des Ergebnisses erfolgt per Umbenennen; das Zurückschreiben einer 1 GB großen Datei dauerte etwa 1 Sekunde, jetzt praktisch nichts.
 - Verbessert: Bei mehreren gleichzeitig laufenden Aufgaben werden die Kodier-Threads nach einem Gesamtbudget für den Rechner verteilt; die CPU-Last insgesamt sinkt um etwa 6–9 %.
+- Neu: Apple-VideoToolbox-Hardwarekodierung unter macOS (H.264 und H.265). „Automatisch“ nutzt sie, sobald sie erkannt wird.
 - Neu: Auf Rechnern mit 24 oder mehr Kernen lässt sich die Parallelität auf 6 oder 8 einstellen.
 
 ### 1.1.0

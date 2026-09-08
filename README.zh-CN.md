@@ -175,6 +175,7 @@ $NODE tests/test_queue_intake.js        # 任务取消、素材接入、原子�
 
 **新增**
 
+- **macOS 上支持 Apple VideoToolbox。** 1.1.0 加的硬件编码是 NVENC / Quick Sync / AMF 三家，而这三家在 Mac 上根本不存在 —— 它们的编码器名永远不会出现在一台 Mac 的 `-encoders` 输出里，于是所有 Mac 用户看到的都是「未检测到硬件编码」，全部任务走 CPU。现在补上第四家：`h264_videotoolbox` 与 `hevc_videotoolbox`，配套的 CRF→`-q:v` 换算（VT 的质量刻度不是 QP）以及硬件解码。它排在探测顺序最后，对 Windows 没有任何影响 —— 另外三家在 macOS 上本就不可能命中。
 - **24 核及以上的机器并发可选到 6 或 8。** worker 上限原来是固定的 4，现在大机器上放宽到 8，下拉选项同步扩展。
 
 ### 1.1.0

@@ -5,7 +5,12 @@
  *   node tools/gen-submission.js
  *
  * 从 docs/<语系>.md 里按 <!-- section:overview|usage|changelog --> 锚点抽出三段，
- * 按 manifest.languages 的顺序拼成一份文件，方便直接复制到插件中心的提交表单。
+ * 拼成一份文件，方便直接复制到插件中心的提交表单。
+ *
+ * 只出投稿要求的四个语系，不是 manifest.languages 全部八个：插件中心会**分别**
+ * 审核每一个投稿语言版本，一个版本被卡就整体退回，而另外四个语系我们没有能力
+ * 逐字校对措辞。docs/ 那八份仍然全都要维护 —— 它们是插件界面语言的说明来源，
+ * 只是不进提交表单。
  *
  * 源只有 docs/ 一份，SUBMISSION.md 是产物 —— 内容要改就改 docs/ 再跑本脚本，
  * 不要直接编辑 SUBMISSION.md，否则下次生成会被覆盖。
@@ -25,8 +30,18 @@ const DOCS_DIR = path.join(ROOT, 'docs');
 const OUT_FILE = path.join(ROOT, 'SUBMISSION.md');
 
 const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'manifest.json'), 'utf8'));
-const LANGS = manifest.languages;
 const VERSION = manifest.version;
+
+/** 提交表单要求的语系，顺序即表单里的填写顺序。 */
+const LANGS = ['en', 'ja_JP', 'zh_CN', 'zh_TW'];
+
+// 语系代码写错了会让这里悄悄少出一节，而缺的那节直到贴表单时才被发现。
+for (const lang of LANGS) {
+    if (!manifest.languages.includes(lang)) {
+        console.error(`✗ 投稿语系 ${lang} 不在 manifest.languages 里`);
+        process.exit(1);
+    }
+}
 
 const NAMES = {
     de_DE: 'Deutsch',
@@ -71,6 +86,7 @@ const lines = [
     '',
     `> 由 \`docs/<语系>.md\` 自动生成，对应版本 **${VERSION}**。`,
     '> 每个语系三节：简述 / 使用说明 / 版本日志，可直接复制到 Eagle 插件中心对应语系的字段。',
+    `> 只含投稿要求的 ${LANGS.length} 个语系；其余语系的 \`docs/\` 是插件界面语言的说明来源，不进提交表单。`,
     '> 内容改动请改 `docs/` 下的源文件后重跑 `node tools/gen-submission.js`，不要直接改本文件。',
     ''
 ];
@@ -91,7 +107,11 @@ for (const lang of LANGS) {
             bad++;
             continue;
         }
-        lines.push(`### ${label}`, '', sec[key], '');
+        // 版本日志段里的 "### 1.1.2" 和这里的 "### 版本日志" 同级，直接拼出来
+        // 层级是平的 —— 贴进表单后每个版本号都成了和「版本日志」并列的章节。
+        // 段内标题统一降一级，让它们挂在所属小节下面。
+        const body = sec[key].replace(/^(#{1,5})([ \t])/gm, '#$1$2');
+        lines.push(`### ${label}`, '', body, '');
     }
 }
 

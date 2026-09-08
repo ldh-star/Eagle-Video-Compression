@@ -11,7 +11,7 @@ Un complemento de transcodificación local para comprimir vídeos por lotes en E
 - La estimación de tamaño en modo CRF se basa en codificaciones de muestra reales, por lo que la interfaz muestra un intervalo en lugar de una cifra exacta engañosa.
 - Controles de resolución, velocidad de fotogramas, audio, velocidad de codificación, concurrencia y tratamiento de fuentes de 10 bits.
 - Detecta fuentes HDR y conserva sus metadatos de color al recodificar; marca los archivos ya comprimidos para evitar una segunda pasada con pérdida por descuido.
-- Codificación por GPU opcional (NVIDIA NVENC, Intel Quick Sync, AMD AMF), que se usa automáticamente cuando hay hardware compatible y vuelve a la codificación por software en CPU en caso contrario.
+- Codificación por GPU opcional: Apple VideoToolbox en macOS y NVIDIA NVENC, Intel Quick Sync o AMD AMF en Windows. Se usa automáticamente cuando hay hardware compatible y vuelve a la codificación por software en CPU en caso contrario.
 - La copia de seguridad está desactivada por defecto y no puede activarse hasta elegir una carpeta de destino. Si la dejas desactivada, no quedará ninguna copia del archivo original.
 - Los ajustes se conservan, la interfaz sigue el tema de Eagle y hay ocho idiomas disponibles.
 
@@ -25,8 +25,6 @@ Este complemento necesita **tanto** un FFmpeg funcional **como** ffprobe.
 - Recomendado: instala el complemento de dependencia «FFmpeg» en Eagle. El complemento lo usará automáticamente.
 - También puedes instalar FFmpeg (con ffprobe incluido) en tu sistema; en ese caso se recurre a esa instalación local.
 - Si no encuentra ninguno de los dos, no podrá comprimir: la barra de estado avisará de que FFmpeg no está disponible, el registro se desplegará automáticamente y con «Copiar diagnóstico» podrás ver las rutas exploradas.
-
-La plataforma verificada actualmente es macOS.
 
 **Flujo básico**
 
@@ -55,10 +53,10 @@ El selector «Aceleración por hardware» ofrece tres opciones:
 | Forzar codificación por GPU | Solo codificación por hardware; falla si este equipo no tiene ningún codificador utilizable |
 | Solo codificación por software en CPU | Codificación por software de principio a fin, el resultado más predecible |
 
-- Se admiten NVIDIA NVENC, Intel Quick Sync Video y AMD AMF. La codificación por hardware suele ser de 3 a 5 veces más rápida y reduce mucho el uso de CPU, con una calidad a igual tasa de bits prácticamente equivalente a la codificación por software.
+- En macOS se usa Apple VideoToolbox; NVIDIA NVENC, Intel Quick Sync Video y AMD AMF requieren Windows con una GPU compatible. La codificación por hardware sirve para reducir el tiempo y el uso de CPU, y la mejora depende del material, los ajustes y la GPU. La calidad a igual tasa de bits puede diferir de la codificación por software, así que elige «Solo codificación por software en CPU» cuando la calidad sea lo primero.
 - VP9 no tiene implementación por hardware y siempre usa la CPU.
 - Si la codificación por hardware falla, se reintenta una vez en CPU en lugar de marcar la tarea como fallida de inmediato.
-- En macOS, si ninguna de las tres está disponible, el complemento vuelve a la codificación por software. Es el comportamiento esperado.
+- Si no se encuentra ningún codificador por hardware utilizable, «Automático» simplemente ejecuta la codificación por software. Es el comportamiento esperado.
 
 **Colores del cambio de almacenamiento**: verde significa menor que el original, rojo significa mayor, y el color de texto normal indica que apenas hay cambio o que el intervalo estimado cruza el tamaño original.
 
@@ -92,8 +90,6 @@ El selector «Aceleración por hardware» ofrece tres opciones:
 - Corregido: los elementos añadidos a una cola en ejecución empezaban a comprimirse y sustituían sus originales de inmediato, mientras el aviso solo mostraba un recuento y los nombres de archivo. Añadir durante una ejecución abre ahora su propio diálogo de confirmación, que enumera los archivos nuevos, indica que se comprimirán al momento y sustituirán los archivos de la ruta original, y muestra el estado real de la copia de seguridad de esta ejecución, con un aviso explícito cuando los originales no se pueden recuperar.
 - Corregido: los avisos de sobrescritura, copia de seguridad e irreversibilidad previos a la ejecución estaban fijados en chino simplificado y no aparecían en ningún otro idioma. Ahora provienen de los archivos de idioma, con traducción completa en los ocho idiomas.
 - Corregido: la redacción daba a entender que el original solo se sustituía con «Sincronizar con la biblioteca de Eagle al terminar» activado. El archivo de la ruta original se sustituye en ambos casos; esa opción solo decide si la API de sustitución de Eagle actualiza el elemento vinculado y su miniatura. Se han corregido la interfaz y la documentación.
-- Mejorado: el paquete se construye ahora a partir de una lista de inclusión y contiene solo el programa, los estilos, el icono, los idiomas y la licencia.
-- Mejorado: el nombre y la descripción para la tienda de complementos tienen una fuente única, y los límites de longitud por idioma se comprueban antes de enviarlos.
 - Mejorado: las instrucciones de uso empiezan con «Antes de empezar», que indica que hacen falta FFmpeg y ffprobe y qué ocurre si no se encuentra ninguno.
 - Corregido: los botones «Iniciar compresión» y «Detener y cancelar» daban un salto lateral en cuanto se calculaban las cifras del resumen. En una ventana estrecha pasaban a una segunda fila mientras el elemento que los empujaba a la derecha se quedaba en la primera, dejándolos pegados a la izquierda. Ahora se alinean a la derecha por sí mismos, haya salto de línea o no.
 - Mejorado: el panel de registro muestra ahora la ruta completa del archivo de ajustes y del archivo de registro, y las instrucciones incluyen «Datos que se conservan y cómo eliminarlos», que indica qué queda tras desinstalar y cómo borrarlo.
@@ -109,6 +105,7 @@ El selector «Aceleración por hardware» ofrece tres opciones:
 - Mejorado: VP9 ahora codifica con varios hilos a la vez; en material 1080p fue unas 2,2 veces más rápido en las pruebas.
 - Mejorado: el resultado se aplica mediante un simple renombrado; escribir de vuelta un archivo de 1 GB pasó de unos 1 s a prácticamente nada.
 - Mejorado: al comprimir varias tareas a la vez, los hilos de codificación se reparten según un presupuesto global del equipo; el uso total de CPU baja aproximadamente un 6–9 %.
+- Añadido: codificación por hardware con Apple VideoToolbox en macOS (H.264 y H.265). «Automático» la usa cuando la detecta.
 - Añadido: en equipos de 24 núcleos o más, la concurrencia puede ajustarse a 6 u 8.
 
 ### 1.1.0
