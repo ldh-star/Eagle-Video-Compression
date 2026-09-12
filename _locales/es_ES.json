@@ -58,6 +58,9 @@
     "hwHintOff": "FFmpeg no ofrece un codificador de hardware utilizable; se usará la codificación por CPU",
     "addFiles": "Añadir archivos locales…",
     "clearList": "Limpiar lista",
+    "removeCompressed": "Quitar comprimidos",
+    "removeCompressedCount": "Quitar comprimidos ({{count}})",
+    "removeCompressedTitle": "Quita de la cola los elementos ya comprimidos; no toca los archivos ni los elementos de Eagle",
     "noFiles": "No se han añadido archivos",
     "emptyTitle": "Aún no se han añadido vídeos",
     "emptyDescription": "Selecciona vídeos en Eagle antes de abrir este plugin para cargarlos automáticamente.\nTambién puedes arrastrar archivos de vídeo directamente a esta ventana.",
@@ -112,6 +115,9 @@
     "selectionAppend": "Añadir a la cola de tareas",
     "writeMarker": "Escribir una marca de «ya comprimido» tras comprimir",
     "writeMarkerHint": "Al volver a comprimir el mismo archivo se mostrarán el número de veces y la fecha. Contenedores como AVI / TS no pueden guardar esta marca",
+    "tagCompressed": "Etiquetar al comprimir",
+    "tagCompressedHint": "Solo se aplica a los elementos importados desde Eagle. Los archivos añadidos localmente no están en la biblioteca y no se pueden etiquetar. La etiqueta se añade sin sobrescribir las existentes",
+    "tagNamePlaceholder": "Comprimido",
     "hdr_hdr10": "HDR10",
     "hdr_hlg": "HLG",
     "hdr_dolbyVision": "Dolby Vision",
@@ -150,6 +156,7 @@
     "ffmpegReady": "FFmpeg {{version}} listo",
     "ffmpegUnavailable": "FFmpeg no disponible",
     "addedFiles": "Se añadieron {{count}} archivos",
+    "removedCompressed": "Se quitaron {{count}} elementos ya comprimidos de la cola (los archivos no se modificaron)",
     "autoLoaded": "Se cargaron automáticamente {{count}} elementos",
     "skippedFiles": "Se omitieron {{count}} archivos no válidos o duplicados",
     "selectVideoFilter": "Archivos de vídeo",
@@ -195,6 +202,7 @@
     "backupDirSet": "Ubicación de copia establecida: {{dir}}",
     "finishedAll": "Todo listo: {{done}} archivos",
     "finishedWithFailures": "{{done}} completados, {{failed}} sin éxito",
+    "taggedSummary": "; se etiquetaron {{count}} elementos con «{{tag}}»",
     "logExpandedSuffix": " (el registro está abierto: usa «Copiar diagnóstico» para compartirlo)"
   }
 }

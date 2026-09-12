@@ -317,6 +317,24 @@ input[type="range"]::-webkit-slider-thumb {
 .check.disabled { opacity: .45; cursor: not-allowed; }
 .check.disabled input { cursor: not-allowed; }
 
+/* 标签名输入框。
+   不能跟 select / input[number] 一样 width:100% —— 它和复选框、提示文案同处
+   一行，撑满会把 hint 挤到下一行，整行高度跟着跳变。定宽即可。 */
+.tag-input {
+    width: 120px;
+    background: var(--panel-2);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 5px 8px;
+    font-size: 12px;
+    font-family: inherit;
+    outline: none;
+    cursor: text;
+}
+.tag-input:focus { border-color: var(--accent); }
+.tag-input:disabled { opacity: .45; cursor: not-allowed; }
+
 .link-btn {
     background: none;
     border: none;

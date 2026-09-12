@@ -229,9 +229,24 @@ function makeApp(opts) {
         });
 }
 
-/** 造一个「可被 addFiles 接受」的 Eagle 素材对象。 */
+/**
+ * 造一个「可被 addFiles 接受」的 Eagle 素材对象。
+ *
+ * 带上 tags / save 是为了让「压缩后自动打标签」这条链路能在 jsdom 里被断言：
+ * 真实素材改完标签必须调 save() 才落库，桩里记下调用次数，
+ * 「打没打、打了几次」才是个数字而不是一句注释。
+ */
 function eagleItem(filePath) {
-    return { filePath: filePath, name: path.basename(filePath) };
+    return {
+        filePath: filePath,
+        name: path.basename(filePath),
+        tags: [],
+        saves: 0,
+        save: function () {
+            this.saves++;
+            return Promise.resolve(true);
+        }
+    };
 }
 
 module.exports = {

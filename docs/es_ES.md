@@ -85,6 +85,12 @@ El selector «Aceleración por hardware» ofrece tres opciones:
 <!-- section:changelog -->
 ## Historial de versiones
 
+### 1.2.0
+
+- Cambiado: al actualizar a esta versión, los ajustes guardados se restablecen una vez. Los ajustes antiguos se descartan por completo en lugar de combinarse campo por campo, porque se han añadido campos nuevos. La nueva opción «Etiquetar al comprimir» viene activada; puedes desactivarla en los ajustes si no la quieres.
+- Nuevo: el botón «Quitar comprimidos» de la barra superior elimina de la cola, de una vez, las entradas ya comprimidas: tanto las terminadas en esta tanda como las que ya llevan la marca de compresión en el archivo. El botón muestra cuántas coinciden. Solo vacía la cola: no borra archivos ni modifica elementos de Eagle.
+- Nuevo: tras comprimir con éxito, los elementos se etiquetan automáticamente con el nombre que elijas («Comprimido» por omisión). La etiqueta se añade, así que las etiquetas que ya tuvieras no se pierden. Solo se aplica a los elementos importados desde Eagle; los archivos añadidos desde el disco no están en la biblioteca y no pueden etiquetarse.
+
 ### 1.1.2
 
 - Corregido: los elementos añadidos a una cola en ejecución empezaban a comprimirse y sustituían sus originales de inmediato, mientras el aviso solo mostraba un recuento y los nombres de archivo. Añadir durante una ejecución abre ahora su propio diálogo de confirmación, que enumera los archivos nuevos, indica que se comprimirán al momento y sustituirán los archivos de la ruta original, y muestra el estado real de la copia de seguridad de esta ejecución, con un aviso explícito cuando los originales no se pueden recuperar.

@@ -18,6 +18,8 @@ A local batch video compression plugin for [Eagle](https://eagle.cool/). It load
 - Resolution, frame-rate, audio, speed, concurrency, and 10-bit source handling controls.
 - Optional backup workflow: backup is disabled until you explicitly choose a backup folder.
 - Optional Eagle replacement: after successful compression, the plugin can replace the original file and refresh its thumbnail.
+- **Automatic tagging** after compression with a custom tag name (default "Compressed"). The tag is appended, never overwriting tags you already set. Only applies to items imported from Eagle.
+- **Remove compressed** button: clears finished items — and items whose file already carries the plugin's compression marker — out of the queue, without touching files or Eagle items.
 - Persistent settings, reset-to-defaults, Eagle-theme following, and localized UI.
 - Built-in diagnostics for failures; the log UI remains hidden during normal use.
 
@@ -137,6 +139,22 @@ $NODE tests/test_queue_intake.js        # cancellation, queue intake, atomic com
 ```
 
 ## Changelog
+
+### 1.2.0
+
+**Added**
+
+- **"Remove compressed".** A second clear button, next to "Clear list", that drops every entry the plugin considers already compressed: anything this run finished or skipped, plus any file whose metadata already carries the compression marker written since 1.0.2. The button shows how many entries match and is disabled at zero. It touches nothing outside the queue — no file is deleted and no Eagle item is modified. It cancels pending sample analyses before filtering, because an estimate callback still holding a removed task's reference would put it back as "analysing" in a list it no longer belongs to. Failed and cancelled entries are left alone on purpose: they were not compressed, and the usual next move is to read the error.
+- **Automatic tagging after compression.** When the option is on, a task that commits successfully tags its Eagle item with a name you choose. Three details carry most of the weight:
+  - **The tag is appended, not assigned.** `item.tags` is a plain array, and `item.tags = [name]` — the obvious one-liner — wipes every tag the user has ever set. That is irreversible metadata loss, and inside Eagle it just looks like tags vanishing with nothing pointing back at compression. The plugin reads the array back and concatenates.
+  - **A tagging failure never fails the task.** By then the file is encoded and committed. Failing the row over a tag makes it read like a broken source and stops people from touching it again. Failures are logged, and the in-memory `item.tags` is rolled back — the item object is reused later in the same run for the thumbnail refresh, and a tag that never reached disk would make every later check believe it had.
+  - **Names are normalised and calls are bounded.** Eagle matches tag names exactly, so "Compressed" and "Compressed " are two tags; comparison trims and ignores case. Each `save()` is capped at 5 seconds, because Eagle's API runs over IPC and a call that never settles would otherwise leave the whole run hanging in its final step.
+  - It only applies to items imported from Eagle. Files added through "Add local files…" have no Eagle item behind them, so there is nothing to tag; the settings hint states this and the code returns instead of failing.
+
+**Changed**
+
+- **Saved settings are reset once on upgrading to 1.2.0.** The settings object gained `tagCompressed` and `compressedTagName`, so `SETTINGS_VERSION` moves from 2 to 3 and the loader discards stored settings whose version does not match, rather than merging them field by field — a half-migrated state, where new fields take defaults and old fields keep stale values, is harder to diagnose than a clean reset. Note that tagging is **on by default**: turn it off under "Tag items after compressing" if you do not want tags written into your library.
+- **The default tag name follows the interface language.** Leaving the name blank does not switch tagging off; it falls back to that locale's own default, so an English library gets "Compressed" and a Japanese one 「圧縮済み」. The name used to be hard-coded Simplified Chinese, which would have labelled every library in Chinese regardless of the language on screen.
 
 ### 1.1.2
 

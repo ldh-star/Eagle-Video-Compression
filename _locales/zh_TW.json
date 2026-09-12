@@ -58,6 +58,9 @@
     "hwHintOff": "目前 FFmpeg 未提供可用的硬體編碼器，將使用 CPU 編碼",
     "addFiles": "新增本機檔案…",
     "clearList": "清空清單",
+    "removeCompressed": "移除已壓縮",
+    "removeCompressedCount": "移除已壓縮（{{count}}）",
+    "removeCompressedTitle": "把已經壓縮過的條目從佇列裡移除，不動檔案也不動 Eagle 素材",
     "noFiles": "尚未新增檔案",
     "emptyTitle": "尚未新增影片",
     "emptyDescription": "在 Eagle 裡選取影片素材後開啟外掛，會自動載入；\n或者直接將影片檔案拖曳到此視窗。",
@@ -112,6 +115,9 @@
     "selectionAppend": "加入任務佇列",
     "writeMarker": "壓縮後寫入「已壓縮」標記",
     "writeMarkerHint": "下次再壓縮同一檔案時，清單裡會顯示壓縮次數與日期。AVI / TS 等容器存不下此標記",
+    "tagCompressed": "壓縮後替素材加上標籤",
+    "tagCompressedHint": "只對從 Eagle 匯入的素材生效，本機加入的檔案不在素材庫裡，加不了標籤。標籤是追加，不會蓋掉原有的",
+    "tagNamePlaceholder": "已壓縮",
     "hdr_hdr10": "HDR10",
     "hdr_hlg": "HLG",
     "hdr_dolbyVision": "杜比視界",
@@ -150,6 +156,7 @@
     "ffmpegReady": "FFmpeg {{version}} 已就緒",
     "ffmpegUnavailable": "FFmpeg 不可用",
     "addedFiles": "已新增 {{count}} 個檔案",
+    "removedCompressed": "已從佇列移除 {{count}} 個已壓縮的素材（檔案未更動）",
     "autoLoaded": "已自動載入 {{count}} 個素材",
     "skippedFiles": "已略過 {{count}} 個非影片或重複檔案",
     "selectVideoFilter": "影片檔案",
@@ -195,6 +202,7 @@
     "backupDirSet": "備份位置已設定：{{dir}}",
     "finishedAll": "全部完成：{{done}} 個",
     "finishedWithFailures": "完成 {{done}} 個，{{failed}} 個未成功",
+    "taggedSummary": "；已為 {{count}} 個素材加上「{{tag}}」標籤",
     "logExpandedSuffix": "（日誌已展開，可點「複製診斷資訊」傳給我）"
   }
 }

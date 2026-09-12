@@ -1,6 +1,6 @@
 # 视频压缩 · 各语言提交文案
 
-> 由 `docs/<语系>.md` 自动生成，对应版本 **1.1.2**。
+> 由 `docs/<语系>.md` 自动生成，对应版本 **1.2.0**。
 > 每个语系三节：简述 / 使用说明 / 版本日志，可直接复制到 Eagle 插件中心对应语系的字段。
 > 只含投稿要求的 4 个语系；其余语系的 `docs/` 是插件界面语言的说明来源，不进提交表单。
 > 内容改动请改 `docs/` 下的源文件后重跑 `node tools/gen-submission.js`，不要直接改本文件。
@@ -90,6 +90,12 @@ The **Hardware acceleration** dropdown has three options:
 - Temporary files created while compressing are written next to the source file and cleaned up when the run ends or at the next start, so they do not accumulate.
 
 ### 版本日志
+
+#### 1.2.0
+
+- Changed: upgrading to this version resets your saved settings once. The stored settings are discarded as a whole instead of being merged field by field, because the settings gained new fields. The new "Tag items after compressing" option is on by default; turn it off in the settings if you do not want it.
+- Added: a "Remove compressed" button in the top bar clears already-compressed entries out of the queue in one click — anything this run finished, plus any file that already carries the compression marker. The button shows how many matched. It only clears the queue: no file is deleted and no Eagle item is touched.
+- Added: items are tagged automatically after a successful compression, under a name you choose ("Compressed" by default). The tag is appended, so tags you already set are never overwritten. It only applies to items imported from Eagle; files added from disk are not in the library and cannot be tagged.
 
 #### 1.1.2
 
@@ -233,6 +239,12 @@ Eagle 内で動画を一括圧縮するローカルトランスコードプラ�
 
 ### 版本日志
 
+#### 1.2.0
+
+- 変更: このバージョンに更新すると、保存済みの設定が一度初期化されます（設定に項目が増えたため、古い設定は部分的に引き継がず、まとめて破棄されます）。新しく追加された「圧縮後にタグを付ける」は既定でオンです。不要な場合は設定でオフにしてください。
+- 追加: 上部のバーに「圧縮済みを削除」ボタンを追加しました。今回の実行で完了した項目と、ファイルに圧縮マーカーがすでに記録されている項目を、ワンクリックでキューから取り除きます。ボタンには該当件数が表示されます。キューから取り除くだけで、ファイルの削除や Eagle 素材の変更は一切行いません。
+- 追加: 圧縮が成功した素材に、任意の名前のタグを自動で付与します（既定は「圧縮済み」）。タグは追記されるため、素材にすでにあるタグが消えることはありません。対象は Eagle から読み込んだ素材のみで、ローカルから追加したファイルは素材ライブラリにないためタグを付けられません。
+
 #### 1.1.2
 
 - 修正：圧縮中にキューへ追加した素材が、すぐに圧縮を始めて元ファイルを置き換えていました（表示は件数とファイル名のみ）。実行中の追加では専用の確認ダイアログを開き、追加ファイルの一覧、すぐに圧縮して元のパスのファイルを置き換えること、今回の実際のバックアップ状態を表示します。バックアップが無効なときは元に戻せない旨を明示します。
@@ -375,6 +387,12 @@ Eagle 内で動画を一括圧縮するローカルトランスコードプラ�
 
 ### 版本日志
 
+#### 1.2.0
+
+- 变更：升级到本版后，之前保存的设置会恢复默认一次（设置结构新增了字段，旧版本整体丢弃而不是挑着合并）。新增的「压缩后给素材打标签」默认开启，不需要可以在设置里关掉。
+- 新增：顶栏「移除已压缩」按钮，一键把已经压过的条目清出队列 —— 本轮压完的，以及文件里本来就带压缩标记的都算，按钮上会显示命中数量。只清队列，不删文件也不动 Eagle 素材。
+- 新增：压缩成功后自动给素材打标签，标签名可自定义（默认「已压缩」）。标签是追加的，不会覆盖素材原有的标签；只对从 Eagle 导入的素材生效，本地添加的文件不在素材库里，打不了。
+
 #### 1.1.2
 
 - 修复：压缩进行中把新素材加入队列时，它们会立即开始压缩并覆盖原文件，而提示只列了数量和文件名。现在会单独弹出确认框，列出新增文件、说明会立即压缩并替换原路径上的文件，并给出本次的实际备份状态；未开启备份时明确提示原件无法恢复。
@@ -516,6 +534,12 @@ Eagle 内で動画を一括圧縮するローカルトランスコードプラ�
 - 壓縮過程中的暫存檔寫在來源檔案旁邊，工作結束或下次啟動時自動清理，不會長期佔用空間。
 
 ### 版本日志
+
+#### 1.2.0
+
+- 變更：升級到本版後，先前儲存的設定會恢復預設一次（設定結構新增了欄位，舊版本整組丟棄而不是挑著合併）。新增的「壓縮後替素材加上標籤」預設開啟，不需要可以在設定裡關掉。
+- 新增：頂欄「移除已壓縮」按鈕，一鍵把已經壓過的項目清出佇列 —— 本輪壓完的，以及檔案裡本來就帶壓縮標記的都算，按鈕上會顯示命中數量。只清佇列，不刪檔案也不動 Eagle 素材。
+- 新增：壓縮成功後自動替素材加上標籤，標籤名稱可自訂（預設「已壓縮」）。標籤是追加的，不會覆蓋素材原有的標籤；只對從 Eagle 匯入的素材生效，本機加入的檔案不在素材庫裡，加不了。
 
 #### 1.1.2
 

@@ -58,6 +58,9 @@
     "hwHintOff": "FFmpeg に利用できるハードウェアエンコーダーがないため、CPU エンコードを使用します",
     "addFiles": "ローカルファイルを追加…",
     "clearList": "リストをクリア",
+    "removeCompressed": "圧縮済みを削除",
+    "removeCompressedCount": "圧縮済みを削除（{{count}}）",
+    "removeCompressedTitle": "圧縮済みの項目をキューから削除します。ファイルと Eagle アイテムは変更しません",
     "noFiles": "ファイルは未追加です",
     "emptyTitle": "動画がまだ追加されていません",
     "emptyDescription": "Eagle で動画を選択してからこのプラグインを開くと、自動で読み込まれます。\nまたは動画ファイルをこのウィンドウに直接ドラッグできます。",
@@ -112,6 +115,9 @@
     "selectionAppend": "タスクキューに追加",
     "writeMarker": "圧縮後に「圧縮済み」マーカーを書き込む",
     "writeMarkerHint": "同じファイルを再圧縮する際、回数と日付を一覧に表示します。AVI / TS などのコンテナには保存できません",
+    "tagCompressed": "圧縮後にタグを付ける",
+    "tagCompressedHint": "Eagle から読み込んだアイテムのみ対象です。ローカル追加のファイルはライブラリに無いためタグを付けられません。タグは追記され、既存のタグは保持されます",
+    "tagNamePlaceholder": "圧縮済み",
     "hdr_hdr10": "HDR10",
     "hdr_hlg": "HLG",
     "hdr_dolbyVision": "ドルビービジョン",
@@ -150,6 +156,7 @@
     "ffmpegReady": "FFmpeg {{version}} の準備ができました",
     "ffmpegUnavailable": "FFmpeg を利用できません",
     "addedFiles": "{{count}} 件のファイルを追加しました",
+    "removedCompressed": "圧縮済みの {{count}} 件をキューから削除しました（ファイルは未変更）",
     "autoLoaded": "{{count}} 件のアイテムを自動読み込みしました",
     "skippedFiles": "動画ではない、または重複する {{count}} 件をスキップしました",
     "selectVideoFilter": "動画ファイル",
@@ -195,6 +202,7 @@
     "backupDirSet": "バックアップ場所を設定しました：{{dir}}",
     "finishedAll": "すべて完了：{{done}} 件",
     "finishedWithFailures": "{{done}} 件完了、{{failed}} 件が失敗",
+    "taggedSummary": "；{{count}} 件に「{{tag}}」タグを付与",
     "logExpandedSuffix": "（ログを開きました。「診断情報をコピー」で共有できます）"
   }
 }

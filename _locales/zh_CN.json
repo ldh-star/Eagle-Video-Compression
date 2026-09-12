@@ -58,6 +58,9 @@
     "hwHintOff": "当前 FFmpeg 未提供可用的硬件编码器，将使用 CPU 编码",
     "addFiles": "添加本地文件…",
     "clearList": "清空列表",
+    "removeCompressed": "移除已压缩",
+    "removeCompressedCount": "移除已压缩（{{count}}）",
+    "removeCompressedTitle": "把已经压缩过的条目从队列里移除，不动文件也不动 Eagle 素材",
     "noFiles": "尚未添加文件",
     "emptyTitle": "还没有添加视频",
     "emptyDescription": "在 Eagle 里选中视频素材后打开本插件，会自动载入；\n或者直接把视频文件拖到这个窗口里",
@@ -112,6 +115,9 @@
     "selectionAppend": "加入任务队列",
     "writeMarker": "压缩后写入「已压缩」标记",
     "writeMarkerHint": "下次再压缩同一文件时，列表里会显示压缩次数和日期。AVI / TS 等容器存不下此标记",
+    "tagCompressed": "压缩后给素材打标签",
+    "tagCompressedHint": "只对从 Eagle 导入的素材生效，本地添加的文件不在素材库里，打不了标签。标签是追加，不会覆盖原有的",
+    "tagNamePlaceholder": "已压缩",
     "hdr_hdr10": "HDR10",
     "hdr_hlg": "HLG",
     "hdr_dolbyVision": "杜比视界",
@@ -150,6 +156,7 @@
     "ffmpegReady": "FFmpeg {{version}} 就绪",
     "ffmpegUnavailable": "FFmpeg 不可用",
     "addedFiles": "已添加 {{count}} 个文件",
+    "removedCompressed": "已从队列移除 {{count}} 个已压缩的素材（文件未改动）",
     "autoLoaded": "已自动载入 {{count}} 个素材",
     "skippedFiles": "已跳过 {{count}} 个非视频或重复文件",
     "selectVideoFilter": "视频文件",
@@ -195,6 +202,7 @@
     "backupDirSet": "备份位置已设置：{{dir}}",
     "finishedAll": "全部完成：{{done}} 个",
     "finishedWithFailures": "完成 {{done}} 个，{{failed}} 个未成功",
+    "taggedSummary": "；已为 {{count}} 个素材打上标签「{{tag}}」",
     "logExpandedSuffix": "（日志已展开，可点「复制诊断信息」发给我）"
   }
 }

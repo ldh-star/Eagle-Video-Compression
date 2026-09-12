@@ -58,6 +58,9 @@
     "hwHintOff": "FFmpeg bietet keinen nutzbaren Hardware-Encoder; es wird die CPU-Kodierung verwendet",
     "addFiles": "Lokale Dateien hinzufügen…",
     "clearList": "Liste leeren",
+    "removeCompressed": "Komprimierte entfernen",
+    "removeCompressedCount": "Komprimierte entfernen ({{count}})",
+    "removeCompressedTitle": "Entfernt bereits komprimierte Einträge aus der Warteschlange. Dateien und Eagle-Objekte bleiben unberührt",
     "noFiles": "Keine Dateien hinzugefügt",
     "emptyTitle": "Noch keine Videos hinzugefügt",
     "emptyDescription": "Wähle Videoelemente in Eagle aus, bevor du dieses Plugin öffnest; sie werden automatisch geladen.\nOder ziehe Videodateien direkt in dieses Fenster.",
@@ -112,6 +115,9 @@
     "selectionAppend": "Zur Aufgabenliste hinzufügen",
     "writeMarker": "Nach der Komprimierung eine „bereits komprimiert\"-Markierung schreiben",
     "writeMarkerHint": "Beim späteren erneuten Komprimieren werden Anzahl und Datum angezeigt. Container wie AVI / TS können diese Markierung nicht speichern",
+    "tagCompressed": "Nach dem Komprimieren verschlagworten",
+    "tagCompressedHint": "Gilt nur für aus Eagle importierte Objekte. Lokal hinzugefügte Dateien liegen nicht in der Bibliothek und können nicht verschlagwortet werden. Der Tag wird ergänzt, vorhandene Tags bleiben erhalten",
+    "tagNamePlaceholder": "Komprimiert",
     "hdr_hdr10": "HDR10",
     "hdr_hlg": "HLG",
     "hdr_dolbyVision": "Dolby Vision",
@@ -150,6 +156,7 @@
     "ffmpegReady": "FFmpeg {{version}} ist bereit",
     "ffmpegUnavailable": "FFmpeg nicht verfügbar",
     "addedFiles": "{{count}} Dateien hinzugefügt",
+    "removedCompressed": "{{count}} bereits komprimierte Objekte aus der Warteschlange entfernt (Dateien unverändert)",
     "autoLoaded": "{{count}} Elemente automatisch geladen",
     "skippedFiles": "{{count}} Nicht-Video- oder Duplikatdateien übersprungen",
     "selectVideoFilter": "Videodateien",
@@ -195,6 +202,7 @@
     "backupDirSet": "Sicherungsordner festgelegt: {{dir}}",
     "finishedAll": "Alles fertig: {{done}} Dateien",
     "finishedWithFailures": "{{done}} abgeschlossen, {{failed}} nicht erfolgreich",
+    "taggedSummary": "; {{count}} Objekte mit \"{{tag}}\" verschlagwortet",
     "logExpandedSuffix": " (Das Protokoll ist geöffnet — mit „Diagnose kopieren\" teilen)"
   }
 }

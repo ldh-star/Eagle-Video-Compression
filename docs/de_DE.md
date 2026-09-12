@@ -85,6 +85,12 @@ Die Auswahl „Hardwarebeschleunigung“ bietet drei Optionen:
 <!-- section:changelog -->
 ## Versionsverlauf
 
+### 1.2.0
+
+- Geändert: Beim Update auf diese Version werden die gespeicherten Einstellungen einmal zurückgesetzt — alte Einstellungen werden insgesamt verworfen statt teilweise übernommen, weil die Einstellungen neue Felder bekommen haben. Die neue Option „Nach dem Komprimieren verschlagworten“ ist standardmäßig aktiv; sie lässt sich in den Einstellungen abschalten.
+- Neu: Die Schaltfläche „Komprimierte entfernen“ in der oberen Leiste räumt bereits komprimierte Einträge mit einem Klick aus der Warteschlange — sowohl in diesem Durchlauf fertiggestellte als auch Dateien, die bereits eine Komprimierungsmarkierung tragen. Die Schaltfläche zeigt, wie viele es trifft. Es wird nur die Warteschlange geleert: keine Datei wird gelöscht und kein Eagle-Eintrag angetastet.
+- Neu: Nach erfolgreicher Komprimierung werden Einträge automatisch verschlagwortet, mit einem frei wählbaren Namen (Vorgabe „Komprimiert“). Der Begriff wird angehängt, vorhandene Schlagwörter bleiben also erhalten. Das gilt nur für aus Eagle importierte Einträge; von der Festplatte hinzugefügte Dateien liegen nicht in der Bibliothek und können nicht verschlagwortet werden.
+
 ### 1.1.2
 
 - Behoben: Während eines Laufs angehängte Elemente wurden sofort komprimiert und ersetzten ihre Originale, obwohl der Hinweis nur Anzahl und Dateinamen zeigte. Das Anhängen während eines Laufs öffnet jetzt einen eigenen Bestätigungsdialog, der die neuen Dateien auflistet, das sofortige Komprimieren und Ersetzen der Dateien im ursprünglichen Pfad benennt und den tatsächlichen Sicherungsstatus dieses Laufs angibt — mit deutlicher Warnung, wenn die Originale nicht wiederhergestellt werden können.

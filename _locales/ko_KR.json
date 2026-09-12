@@ -58,6 +58,9 @@
     "hwHintOff": "FFmpeg에서 사용 가능한 하드웨어 인코더를 찾지 못해 CPU 인코딩을 사용합니다",
     "addFiles": "로컬 파일 추가…",
     "clearList": "목록 비우기",
+    "removeCompressed": "압축된 항목 제거",
+    "removeCompressedCount": "압축된 항목 제거 ({{count}})",
+    "removeCompressedTitle": "이미 압축된 항목을 대기열에서 제거합니다. 파일과 Eagle 항목은 변경하지 않습니다",
     "noFiles": "추가된 파일이 없습니다",
     "emptyTitle": "아직 추가된 동영상이 없습니다",
     "emptyDescription": "이 플러그인을 열기 전에 Eagle에서 동영상을 선택하면 자동으로 불러옵니다.\n또는 동영상 파일을 이 창으로 직접 끌어다 놓을 수 있습니다.",
@@ -112,6 +115,9 @@
     "selectionAppend": "작업 대기열에 추가",
     "writeMarker": "압축 후 \"압축됨\" 표시 기록",
     "writeMarkerHint": "나중에 같은 파일을 다시 압축하면 횟수와 날짜가 표시됩니다. AVI / TS 등 일부 컨테이너는 이 표시를 저장할 수 없습니다",
+    "tagCompressed": "압축 후 태그 추가",
+    "tagCompressedHint": "Eagle에서 가져온 항목에만 적용됩니다. 로컬에서 추가한 파일은 라이브러리에 없어 태그를 지정할 수 없습니다. 태그는 추가되며 기존 태그는 유지됩니다",
+    "tagNamePlaceholder": "압축됨",
     "hdr_hdr10": "HDR10",
     "hdr_hlg": "HLG",
     "hdr_dolbyVision": "돌비 비전",
@@ -150,6 +156,7 @@
     "ffmpegReady": "FFmpeg {{version}} 준비 완료",
     "ffmpegUnavailable": "FFmpeg를 사용할 수 없음",
     "addedFiles": "{{count}}개 파일을 추가했습니다",
+    "removedCompressed": "압축된 항목 {{count}}개를 대기열에서 제거했습니다 (파일은 변경되지 않음)",
     "autoLoaded": "{{count}}개 항목을 자동으로 불러왔습니다",
     "skippedFiles": "동영상이 아니거나 중복된 파일 {{count}}개를 건너뛰었습니다",
     "selectVideoFilter": "동영상 파일",
@@ -195,6 +202,7 @@
     "backupDirSet": "백업 위치를 설정했습니다: {{dir}}",
     "finishedAll": "모두 완료: {{done}}개",
     "finishedWithFailures": "{{done}}개 완료, {{failed}}개 실패",
+    "taggedSummary": "; {{count}}개 항목에 \"{{tag}}\" 태그를 추가했습니다",
     "logExpandedSuffix": "(로그를 펼쳤습니다. “진단 정보 복사”로 공유할 수 있습니다)"
   }
 }

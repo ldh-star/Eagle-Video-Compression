@@ -120,7 +120,7 @@
      * 比如把默认编码从 H.264 改成 H.265，老用户那边永远还是 H.264，
      * 你会以为自己没改成功。
      */
-    var SETTINGS_VERSION = 2;
+    var SETTINGS_VERSION = 3;
 
     /**
      * 统一日志出口。Logger 没加载时（理论上不会）退回 console，
@@ -184,6 +184,17 @@
             // 注意 AVI / TS 这类容器存不了自定义 metadata，写了也存不进去。
             writeCompressionMarker: true,
 
+            // 压缩完成后给 Eagle 素材打标签，方便在库里一眼筛出「压过的」。
+            // 只能对从 Eagle 导入的素材生效 —— 「添加本地文件…」进来的文件不在
+            // 素材库里，没有标签可打，界面上的提示已经写明这一点。
+            tagCompressed: true,
+            // 【留空 = 用当前语系的默认名】这里不能写死 '已压缩'：设置是全局一份，
+            // 而界面有八个语系。写死的话英文界面上素材会被打上中文标签，而且
+            // 用户看到输入框里躺着一段看不懂的字，多半以为自己什么时候改过。
+            // 留空时输入框显示的是语系化的占位符（英文 "Compressed"、日文
+            // 「圧縮済み」……），真正打标签前由 compressedTagName() 兜底。
+            compressedTagName: '',
+
             // 界面主题：auto 跟随 Eagle，light / dark 强制
             themeMode: 'auto'
         };
@@ -211,6 +222,9 @@
 
     /** 空列表时下面那行提示语，自动导入没选中素材时会改写它 */
     var emptyHint = '';
+
+    /** 「移除已压缩」按钮上一次写进 DOM 的文案，避免每次汇总都重设一遍 textContent。 */
+    var removeCompressedLabel = '';
 
     // -----------------------------------------------------------------
     // 工具
@@ -502,6 +516,10 @@
         s.backup = dom.chkBackup.checked;
         s.replaceInEagle = dom.chkReplaceInEagle.checked;
         s.writeCompressionMarker = dom.chkWriteMarker.checked;
+        s.tagCompressed = dom.chkTagCompressed.checked;
+        // 标签名不 trim 落盘，但用之前会 trim（见 compressedTagName()）。
+        // 存原样是为了不让输入框里的尾部空格在切走焦点时凭空消失。
+        s.compressedTagName = dom.inpTagName.value;
         s.concurrency = parseInt(dom.selConcurrency.value, 10);
         s.hwAccel = dom.selHwAccel ? dom.selHwAccel.value : 'auto';
         return s;
@@ -684,6 +702,10 @@
         dom.chkBackup.checked = s.backup;
         dom.chkReplaceInEagle.checked = s.replaceInEagle;
         dom.chkWriteMarker.checked = s.writeCompressionMarker !== false;
+        dom.chkTagCompressed.checked = s.tagCompressed !== false;
+        dom.inpTagName.value = s.compressedTagName || '';
+
+        refreshTagUI();
 
         // 压缩方式
         document.querySelectorAll('#modeTabs button').forEach(function (b) {
@@ -787,6 +809,17 @@
 
     function updateCrfValue() {
         dom.crfValue.textContent = dom.rngCrf.value;
+    }
+
+    /**
+     * 标签勾选框与标签名输入框的联动。
+     *
+     * 关掉勾选时把输入框一起禁用：留着能输入会让人以为「填了名字但没勾上」也算数，
+     * 等到压缩完发现没打上标签，根本想不到是这一对控件的状态组合导致的。
+     */
+    function refreshTagUI() {
+        var on = dom.chkTagCompressed.checked;
+        dom.inpTagName.disabled = !on;
     }
 
     // -----------------------------------------------------------------
@@ -1359,6 +1392,22 @@
     }
 
     /**
+     * 这条任务算不算「已经压缩过」。
+     *
+     * 两类都算：
+     *  1) 本轮已经跑完的（done / skipped）—— 产物已经落盘，留在队列里只会让人
+     *     以为还没处理，或者不小心再压一遍。
+     *  2) 探测时发现文件里已经有本插件写入的压缩标记的 —— 这批素材以前压过，
+     *     用户往往正是为了把它们挑出来才点「移除已压缩」。
+     *
+     * error / incompatible / cancelled 不算：它们根本没产出，留着才能重试。
+     */
+    function isCompressedTask(t) {
+        if (t.status === 'done' || t.status === 'skipped') return true;
+        return !!(t.meta && t.meta.compression && t.meta.compression.compressed);
+    }
+
+    /**
      * 一次遍历拿齐汇总所需的全部计数。
      *
      * renderSummary / renderNotices / updateButtons 各自要的数字其实是同一批，
@@ -1375,11 +1424,13 @@
             doneCount: 0, doneOrig: 0, doneFinal: 0,
             readyCount: 0, readySize: 0,
             recompressed: 0,
+            compressedCount: 0,
             runnable: false
         };
         for (var i = 0; i < state.tasks.length; i++) {
             var t = state.tasks[i];
             var meta = t.meta;
+            if (isCompressedTask(t)) s.compressedCount++;
             if (t.status === 'done') {
                 s.done.push(t);
                 s.doneOrig += meta ? meta.size : 0;
@@ -1506,6 +1557,18 @@
         dom.btnCancel.disabled = !state.running;
         dom.btnClear.disabled = state.running || !hasTask;
         dom.btnAddFiles.disabled = state.running || !state.ready;
+
+        // 按钮上直接写命中数量：这个按钮的作用范围不是全表，不写数字用户只能
+        // 先点一下才知道会移走几条 —— 而它是不可撤销的（移走的条目要重新导入）。
+        var n = s.compressedCount;
+        var label = n > 0
+            ? tr('ui.removeCompressedCount', '移除已压缩（{{count}}）', { count: n })
+            : tr('ui.removeCompressed', '移除已压缩');
+        if (removeCompressedLabel !== label) {
+            removeCompressedLabel = label;
+            dom.btnRemoveCompressed.textContent = label;
+        }
+        dom.btnRemoveCompressed.disabled = state.running || n === 0;
         // 选备份目录的按钮不受备份勾选框限制 —— 顺序是先选目录、后启用勾选，
         // 反过来就成了「想开备份先得勾上，但勾上了才能选目录」的死锁。
         dom.btnPickBackup.disabled = state.running;
@@ -1518,6 +1581,40 @@
         state.tasks = state.tasks.filter(function (t) { return t.id !== id; });
         renderList();
         refreshEstimate();
+    }
+
+    /**
+     * 把「已经压缩过」的条目从队列里移除。
+     *
+     * 【只管队列】不动磁盘文件、不动 Eagle 素材。删素材是不可逆操作，
+     * 不能藏在一个和「清空列表」并排的按钮里 —— 误点的代价是用户的原片。
+     *
+     * 【为什么不做二次确认】它移走的只是列表条目，重新在 Eagle 里选中素材
+     * 再打开插件就能找回来，不是破坏性操作。反过来，如果要弹确认框，
+     * 说明这个按钮干的是另一件事，那就该换个按钮。
+     */
+    function removeCompressedTasks() {
+        if (state.running) return;
+
+        var removed = [];
+        // 先取消采样再改表：采样预估的回调里还握着旧任务对象的引用，
+        // 边跑边删会让它们把已移除的任务重新标成「分析中」。
+        cancelSamplingEstimates();
+        state.tasks = state.tasks.filter(function (t) {
+            if (!isCompressedTask(t)) return true;
+            removed.push(t);
+            return false;
+        });
+
+        if (!removed.length) return;
+
+        renderList();
+        renderSummary();
+        setStatus(tr('runtime.removedCompressed',
+            '已从队列移除 {{count}} 个已压缩的素材（文件未改动）', { count: removed.length }), 'ok');
+        log('info', '移除已压缩条目 ' + removed.length + ' 个：' + removed.map(function (t) {
+            return t.name;
+        }).join('、'));
     }
 
     function setStatus(text, kind) {
@@ -1753,6 +1850,8 @@
         var session = state.runSession = {
             queue: tasks.slice(),
             pendingProbes: 0,
+            // 本轮成功打上标签的素材数，收尾时并进状态栏。
+            tagged: 0,
             waiters: []
         };
 
@@ -1790,15 +1889,29 @@
                     return t.status === 'error' || t.status === 'incompatible';
                 }).length;
 
+                var finishText;
+                var finishKind;
                 if (state.cancelToken.cancelled) {
-                    setStatus(tr('runtime.cancelled', '已取消'), 'warn');
+                    finishText = tr('runtime.cancelled', '已取消');
+                    finishKind = 'warn';
                 } else if (failed) {
-                    setStatus(tr('runtime.finishedWithFailures', '完成 {{done}} 个，{{failed}} 个未成功', {
+                    finishText = tr('runtime.finishedWithFailures', '完成 {{done}} 个，{{failed}} 个未成功', {
                         done: done, failed: failed
-                    }), 'warn');
+                    });
+                    finishKind = 'warn';
                 } else {
-                    setStatus(tr('runtime.finishedAll', '全部完成：{{done}} 个', { done: done }), 'ok');
+                    finishText = tr('runtime.finishedAll', '全部完成：{{done}} 个', { done: done });
+                    finishKind = 'ok';
                 }
+
+                // 打标签是这一轮除了「文件变小」之外唯一留在 Eagle 里的痕迹，
+                // 不提一句的话用户根本不知道它到底生效没有。
+                if (session.tagged > 0) {
+                    finishText += tr('runtime.taggedSummary', '；已为 {{count}} 个素材打上标签「{{tag}}」', {
+                        count: session.tagged, tag: compressedTagName(runtimeSettings)
+                    });
+                }
+                setStatus(finishText, finishKind);
 
                 if (eagle && eagle.notification && done > 0 && !state.cancelToken.cancelled) {
                     try {
@@ -1816,6 +1929,79 @@
                     } catch (e) { /* 通知失败不影响主流程 */ }
                 }
             });
+    }
+
+    /**
+     * 本次要打的标签名。空字符串 / 纯空白视为没填。
+     *
+     * 不 trim 落盘（见 readSettingsFromUI），但**用之前必须 trim**：
+     * 「已压缩 」这种带尾空格的标签在 Eagle 里是一个独立标签，
+     * 打上去等于制造了一个和「已压缩」并存的近似重复项，而且极难发现。
+     *
+     * 【空值兜底】没填时退回当前语系的默认名（占位符文案），
+     * 而不是退回一个写死的中文串 —— 见 defaultSettings() 里的说明。
+     */
+    function compressedTagName(settings) {
+        var raw = String((settings && settings.compressedTagName) || '').trim();
+        if (raw) return raw;
+        return String(tr('ui.tagNamePlaceholder', '已压缩') || '').trim();
+    }
+
+    /**
+     * 压缩成功后给 Eagle 素材打上标签。
+     *
+     * 【追加，不覆盖】素材上可能已经有用户自己打的标签，
+     * item.tags = [name] 会把它们全清掉 —— 那是不可逆的元数据丢失。
+     *
+     * 【失败不判失败】标签只是锦上添花：文件已经压完并落盘了，标签没打上
+     * 不影响任何东西。反过来，如果把它算进任务成败，用户会看到「失败」
+     * 以为原片没压好，还不敢重试。
+     *
+     * 【必须套超时】Eagle 的 API 走 IPC，宿主没响应时 Promise 可能永远
+     * 不 settle（之前定位 FFmpeg 就栽在这上面）。不设上限的话，这一轮
+     * 压缩会永远停在「收尾」，而界面上只会显示任务还在跑。
+     *
+     * @returns {Promise<boolean>} 是否真的打上了（已有同名标签也算没打）
+     */
+    function tagEagleItemAsync(t, settings) {
+        if (!settings || !settings.tagCompressed) return Promise.resolve(false);
+
+        var name = compressedTagName(settings);
+        if (!name) return Promise.resolve(false);
+
+        var item = t.eagleItem;
+        // 「添加本地文件…」进来的文件没有 Eagle 素材对象，标签无处可打。
+        if (!item || typeof item.save !== 'function') return Promise.resolve(false);
+
+        var current = Array.isArray(item.tags) ? item.tags.slice() : [];
+        var lowered = name.toLowerCase();
+        for (var i = 0; i < current.length; i++) {
+            // Eagle 的标签名是精确匹配：「已压缩」和「已压缩 」是两个标签。
+            // 忽略大小写与首尾空格，避免打出近似重复项。
+            if (String(current[i]).trim().toLowerCase() === lowered) return Promise.resolve(false);
+        }
+
+        item.tags = current.concat([name]);
+
+        var p = Promise.resolve().then(function () { return item.save(); });
+        if (Core && Core._internal && typeof Core._internal.withTimeout === 'function') {
+            p = Core._internal.withTimeout(p, 5000, false);
+        }
+        return p.then(function (ok) {
+            if (ok === false) {
+                log('warn', '[' + t.name + '] 打标签「' + name + '」未成功（save() 返回 false）');
+                return false;
+            }
+            log('info', '[' + t.name + '] 已打标签「' + name + '」');
+            return true;
+        }).catch(function (err) {
+            // 回滚内存里的改动。item 对象在本轮还会被复用（比如刷新缩略图），
+            // 留着一个没真正存进去的标签，会让后续判断以为已经打过了。
+            item.tags = current;
+            log('warn', '[' + t.name + '] 打标签「' + name + '」失败：' +
+                (err && err.message ? err.message : err));
+            return false;
+        });
     }
 
     /**
@@ -2047,7 +2233,13 @@
                 log('info', '[' + t.name + '] 完成 | ' + sizePart +
                     ' | 耗时 ' + ((Date.now() - tStart) / 1000).toFixed(1) + 's');
                 renderTask(t);
-                return cleanup();
+
+                // 打标签串在清理前面：它永不 reject（失败只记日志），
+                // 所以既保证了顺序，又不会把 cleanup 吞掉。
+                return tagEagleItemAsync(t, settings).then(function (tagged) {
+                    if (tagged && state.runSession) state.runSession.tagged++;
+                    return cleanup();
+                });
             })
             .catch(function (err) {
                 if (err && err.skipped) {
@@ -2409,6 +2601,7 @@
             renderList();
             renderSummary();
         });
+        dom.btnRemoveCompressed.addEventListener('click', removeCompressedTasks);
         dom.btnStart.addEventListener('click', start);
         dom.btnCancel.addEventListener('click', cancel);
         dom.btnAnalyzeAll.addEventListener('click', function () {
@@ -2466,6 +2659,13 @@
         });
         dom.chkReplaceInEagle.addEventListener('change', saveSettings);
         dom.chkWriteMarker.addEventListener('change', saveSettings);
+        dom.chkTagCompressed.addEventListener('change', function () {
+            refreshTagUI();
+            saveSettings();
+        });
+        // 标签名用 change 而不是 input：每敲一个字就落盘一次没必要，
+        // 而且 change 在失焦/回车时才触发，正好是「这个名字我定下来了」。
+        dom.inpTagName.addEventListener('change', saveSettings);
 
         // 拖放添加文件
         window.addEventListener('dragover', function (e) { e.preventDefault(); });
@@ -2775,6 +2975,9 @@
             btnTheme: $('btnTheme'),
             btnResetSettings: $('btnResetSettings'),
             btnClear: $('btnClear'),
+            btnRemoveCompressed: $('btnRemoveCompressed'),
+            chkTagCompressed: $('chkTagCompressed'),
+            inpTagName: $('inpTagName'),
             fileList: $('fileList'),
             listStat: $('listStat'),
             sumOriginal: $('sumOriginal'),
@@ -3014,7 +3217,11 @@
             scheduleSamplingEstimates: scheduleSamplingEstimates,
             stopSamplingEstimates: stopSamplingEstimates,
             updateSampleAnalysisControls: updateSampleAnalysisControls,
-            atomicReplaceFileAsync: atomicReplaceFileAsync
+            atomicReplaceFileAsync: atomicReplaceFileAsync,
+            isCompressedTask: isCompressedTask,
+            removeCompressedTasks: removeCompressedTasks,
+            tagEagleItemAsync: tagEagleItemAsync,
+            compressedTagName: compressedTagName
         }
     };
 })(typeof self !== 'undefined' ? self : globalThis);

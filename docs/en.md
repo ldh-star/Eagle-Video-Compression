@@ -85,6 +85,12 @@ The **Hardware acceleration** dropdown has three options:
 <!-- section:changelog -->
 ## Changelog
 
+### 1.2.0
+
+- Changed: upgrading to this version resets your saved settings once. The stored settings are discarded as a whole instead of being merged field by field, because the settings gained new fields. The new "Tag items after compressing" option is on by default; turn it off in the settings if you do not want it.
+- Added: a "Remove compressed" button in the top bar clears already-compressed entries out of the queue in one click — anything this run finished, plus any file that already carries the compression marker. The button shows how many matched. It only clears the queue: no file is deleted and no Eagle item is touched.
+- Added: items are tagged automatically after a successful compression, under a name you choose ("Compressed" by default). The tag is appended, so tags you already set are never overwritten. It only applies to items imported from Eagle; files added from disk are not in the library and cannot be tagged.
+
 ### 1.1.2
 
 - Fixed: items appended to a running queue started compressing and replaced their originals immediately, while the prompt showed only a count and file names. Appending during a run now opens its own confirmation that lists the new files, states they will be compressed at once and replace the files at their original paths, and reports this run's actual backup state — with an explicit warning when the originals cannot be recovered.

@@ -287,4 +287,235 @@ add({
     }
 });
 
+// ---------------------------------------------------------------------------
+// 队列清理：移除已压缩条目
+// ---------------------------------------------------------------------------
+
+/**
+ * 造一条指定状态的任务。
+ *
+ * @param {string} id
+ * @param {string} status
+ * @param {boolean} [compressed] 探测到的文件里是否已有本插件的压缩标记
+ */
+function taskWith(id, status, compressed) {
+    const t = makeTask(0);
+    t.id = id;
+    t.status = status;
+    if (compressed) {
+        t.meta.compression = {
+            compressed: true, version: 1, count: 1, date: '', codec: 'h265', mode: 'crf'
+        };
+    }
+    return t;
+}
+
+add({
+    id: 'NEW-02',
+    title: '「移除已压缩」只清掉压过的条目，没压过的和失败的必须留下',
+    area: 'ui',
+    level: 'P1',
+    status: 'implemented',
+    issue: '这个按钮和「清空列表」并排，最容易做错成「按状态过滤时把 error 也一起清了」。' +
+           '失败条目清掉等于把一个可重试的入口直接抹掉；而没压过的条目被清掉，' +
+           '用户就得重新去 Eagle 里选一遍素材。',
+    contract: '移除 done / skipped / 探测到压缩标记的条目；queued、error、cancelled 一律保留',
+    ref: 'js/app.js removeCompressedTasks',
+    run: async function () {
+        const app = await Env.makeApp();
+        try {
+            const st = app.win.App._state;
+            st.tasks.length = 0;
+            [
+                taskWith('done1', 'done'),
+                taskWith('skipped1', 'skipped'),
+                taskWith('marked1', 'queued', true),
+                taskWith('fresh1', 'queued'),
+                taskWith('error1', 'error'),
+                taskWith('cancel1', 'cancelled')
+            ].forEach(function (t) { st.tasks.push(t); });
+            app.win.App._internal.renderList();
+
+            app.win.App._internal.removeCompressedTasks();
+
+            const ids = st.tasks.map(function (t) { return t.id; });
+            assert(!ids.includes('done1'), '本轮已完成的条目应该被移除');
+            assert(!ids.includes('skipped1'), '已跳过（产物不值得替换）的条目应该被移除');
+            assert(!ids.includes('marked1'), '文件里已有压缩标记的条目应该被移除');
+            assert(ids.includes('fresh1'), '没压过的条目不该被动到');
+            assert(ids.includes('error1'), '失败的条目必须留下，否则没法重试');
+            assert(ids.includes('cancel1'), '已取消的条目必须留下');
+            assert.strictEqual(st.tasks.length, 3, '应只剩 3 条，实际 ' + st.tasks.length);
+        } finally {
+            app.close();
+        }
+    }
+});
+
+add({
+    id: 'NEW-03',
+    title: '没有已压缩条目时「移除已压缩」按钮必须是禁用的',
+    area: 'ui',
+    level: 'P2',
+    status: 'implemented',
+    issue: '按钮文案里带命中数量，如果禁用条件写错（比如只看有没有任务），' +
+           '列表里全是待压缩素材时它也会亮着 —— 点下去什么都没发生，' +
+           '用户会以为功能坏了。',
+    contract: '命中数为 0 时按钮 disabled；命中数 > 0 时可用且文案带数量',
+    ref: 'js/app.js updateButtons',
+    run: async function () {
+        const app = await Env.makeApp();
+        try {
+            const st = app.win.App._state;
+            const btn = app.win.document.getElementById('btnRemoveCompressed');
+            assert(btn, '工具栏里应该有「移除已压缩」按钮');
+
+            st.tasks.length = 0;
+            st.tasks.push(taskWith('a', 'queued', false));
+            app.win.App._internal.renderSummary();
+            assert.strictEqual(btn.disabled, true, '没有已压缩条目时按钮不该可点');
+
+            st.tasks.push(taskWith('b', 'done', false));
+            app.win.App._internal.renderSummary();
+            assert.strictEqual(btn.disabled, false, '有已压缩条目时按钮应该可点');
+            assert(/1/.test(btn.textContent),
+                '按钮文案里应该带命中数量，实际是「' + btn.textContent + '」');
+        } finally {
+            app.close();
+        }
+    }
+});
+
+// ---------------------------------------------------------------------------
+// 压缩后打标签
+// ---------------------------------------------------------------------------
+
+add({
+    id: 'NEW-04',
+    title: '打标签必须是追加，不能覆盖素材上已有的标签',
+    area: 'ui',
+    level: 'P1',
+    status: 'implemented',
+    issue: 'Eagle 的 item.tags 是一个普通数组，写成 item.tags = [name] 最省事，' +
+           '但那样会把用户自己打的标签全清掉 —— 素材元数据不可逆丢失，' +
+           '而用户在 Eagle 里看到的是「标签莫名其妙没了」，根本联想不到是压缩干的。',
+    contract: '新标签追加到已有标签之后，原标签原顺序保留；save() 只调一次',
+    ref: 'js/app.js tagEagleItemAsync',
+    run: async function () {
+        const app = await Env.makeApp();
+        try {
+            const item = Env.eagleItem('/tmp/eagle-vc-tag-append.mp4');
+            item.tags = ['旅行', '4K'];
+            const t = { id: 'tag-a', name: 'a.mp4', path: item.filePath, eagleItem: item };
+
+            const ok = await app.win.App._internal.tagEagleItemAsync(t, {
+                tagCompressed: true, compressedTagName: '已压缩'
+            });
+
+            assert.strictEqual(ok, true, '应该报告标签已打上');
+            assert.deepStrictEqual(item.tags, ['旅行', '4K', '已压缩'],
+                '已有标签被覆盖或丢失：' + JSON.stringify(item.tags));
+            assert.strictEqual(item.saves, 1, 'save() 应该只调一次，实际 ' + item.saves);
+        } finally {
+            app.close();
+        }
+    }
+});
+
+add({
+    id: 'NEW-05',
+    title: '已有同名标签不再重复添加；打不上时回滚内存里的改动',
+    area: 'ui',
+    level: 'P1',
+    status: 'implemented',
+    issue: '两条都得盯住：① Eagle 的标签名是精确匹配，「已压缩」和「已压缩 」是两个标签，' +
+           '不做归一化就会打出一对肉眼分不出来的重复项；② 改完 tags 再 save 失败，' +
+           '内存里的 item 还留着那个没存进去的标签，后续判断会以为已经打过了 —— ' +
+           '这个 item 对象本轮还要复用（刷新缩略图等）。',
+    contract: '同名（忽略大小写与首尾空格）视为已存在，不添加也不 save；save 失败时把 tags 还原',
+    ref: 'js/app.js tagEagleItemAsync',
+    run: async function () {
+        const app = await Env.makeApp();
+        try {
+            // ① 尾空格去重
+            const dup = Env.eagleItem('/tmp/eagle-vc-tag-dup.mp4');
+            dup.tags = ['已压缩 '];
+            const okDup = await app.win.App._internal.tagEagleItemAsync(
+                { id: 'tag-b', name: 'b.mp4', path: dup.filePath, eagleItem: dup },
+                { tagCompressed: true, compressedTagName: '已压缩' });
+            assert.strictEqual(okDup, false, '已有同名标签应视为无需再打');
+            assert.deepStrictEqual(dup.tags, ['已压缩 '], '不该改动已有标签');
+            assert.strictEqual(dup.saves, 0, '已经打过就不该再 save 一次');
+
+            // ② save 失败要回滚
+            const bad = Env.eagleItem('/tmp/eagle-vc-tag-fail.mp4');
+            bad.tags = ['旅行'];
+            bad.save = function () { this.saves++; return Promise.reject(new Error('IPC 超时')); };
+            const okBad = await app.win.App._internal.tagEagleItemAsync(
+                { id: 'tag-c', name: 'c.mp4', path: bad.filePath, eagleItem: bad },
+                { tagCompressed: true, compressedTagName: '已压缩' });
+            assert.strictEqual(okBad, false, 'save 失败应返回 false 而不是抛出去');
+            assert.deepStrictEqual(bad.tags, ['旅行'],
+                'save 失败后必须把内存里的 tags 还原，否则后续会误判为已打过');
+        } finally {
+            app.close();
+        }
+    }
+});
+
+add({
+    id: 'NEW-06',
+    title: '标签设置必须真的接进界面：默认值、勾选联动、名字去空白',
+    area: 'ui',
+    level: 'P2',
+    status: 'implemented',
+    issue: '新增设置项最容易漏的是三处接线：applySettingsToUI 不写回、' +
+           'refreshTagUI 不联动、readSettingsFromUI 不读。漏任何一处，' +
+           '表现都是「界面上有这个开关但它是死的」，而且不报任何错。',
+    contract: '启动时控件反映默认值；取消勾选后输入框禁用；带空格的名字在用之前被 trim',
+    ref: 'js/app.js applySettingsToUI / refreshTagUI / compressedTagName',
+    run: async function () {
+        const app = await Env.makeApp();
+        try {
+            const doc = app.win.document;
+            const chk = doc.getElementById('chkTagCompressed');
+            const inp = doc.getElementById('inpTagName');
+            assert(chk && inp, '标签设置控件应该存在');
+
+            assert.strictEqual(chk.checked, true, '默认应该开启打标签');
+            assert.strictEqual(inp.value, '',
+                '默认标签名必须留空：写死中文的话英文界面会打出中文标签，' +
+                '留空时由占位符显示当前语系的默认名');
+            assert.strictEqual(inp.disabled, false, '勾选状态下输入框应该可编辑');
+
+            chk.checked = false;
+            chk.dispatchEvent(new app.win.Event('change'));
+            assert.strictEqual(inp.disabled, true,
+                '取消勾选后必须禁用输入框，否则「填了名字但没勾上」会被当成生效');
+
+            chk.checked = true;
+            chk.dispatchEvent(new app.win.Event('change'));
+            assert.strictEqual(inp.disabled, false, '重新勾选后输入框应恢复');
+
+            assert.strictEqual(
+                app.win.App._internal.compressedTagName({ compressedTagName: '  已压缩  ' }),
+                '已压缩', '标签名必须 trim：尾空格会打出一个肉眼分不出的重复标签');
+
+            // 空值兜底：不填名字也必须能打标签，而且兜的是当前语系的默认名，
+            // 不是写死的中文（测试环境里 tr 返回 fallback，正好等于语系默认值）。
+            assert.strictEqual(
+                app.win.App._internal.compressedTagName({ compressedTagName: '   ' }),
+                '已压缩', '纯空白应视为没填，退回语系默认名');
+            assert.strictEqual(
+                app.win.App._internal.compressedTagName({}),
+                '已压缩', '没这个字段时也要能拿到默认名');
+            assert.strictEqual(
+                app.win.App._internal.compressedTagName({ compressedTagName: 'Done ' }),
+                'Done', '填了名字就用填的');
+        } finally {
+            app.close();
+        }
+    }
+});
+
 module.exports = cases;

@@ -198,6 +198,16 @@
                     <span class="hint" data-i18n="ui.writeMarkerHint">下次再压缩同一文件时，列表里会显示压缩次数和日期。AVI / TS 等容器存不下此标记</span>
                 </div>
 
+                <div class="check-row">
+                    <label class="check">
+                        <input type="checkbox" id="chkTagCompressed" checked>
+                        <span data-i18n="ui.tagCompressed">压缩后给素材打标签</span>
+                    </label>
+                    <input type="text" class="tag-input" id="inpTagName" maxlength="40"
+                           placeholder="已压缩" data-i18n-placeholder="ui.tagNamePlaceholder">
+                    <span class="hint" data-i18n="ui.tagCompressedHint">只对从 Eagle 导入的素材生效，本地添加的文件不在素材库里，打不了标签。标签是追加，不会覆盖原有的</span>
+                </div>
+
                 <div class="field inline" data-page-node-id="UMgj3cdQaAUKAaeumResTF">
                     <label data-page-node-id="EC5xzWZHWhxntJSn8dLq3o">同时处理</label>
                     <select id="selConcurrency" data-page-node-id="AbWmBdgr6EThTcMkJCTby0"></select>
@@ -216,6 +226,21 @@
         <section class="toolbar" data-page-node-id="yt5FWFbNpq5i0Xi2qNt8pa">
             <button type="button" class="btn" id="btnAddFiles" data-page-node-id="GggX3RAF3RmfZ92uxrKXRf">添加本地文件…</button>
             <button type="button" class="btn" id="btnClear" data-page-node-id="vacFlDbYQjemeNSOLSFEoy">清空列表</button>
+            <!--
+              只清队列里「已经压过」的条目。
+
+              「清空列表」会把没处理的也一起清掉，而用户点这个按钮的意图通常正好
+              相反：把压完的挪走，留下还没动的继续干活。所以它和「清空列表」是
+              两件事，不能合并成一个带选项的按钮 —— 后者每次都要读一遍选项才知道
+              会发生什么。
+            -->
+            <!--
+              这里刻意不写 data-i18n：按钮文案是 updateButtons 动态拼的（带命中数量），
+              I18n.apply 会在初始化时把 [data-i18n] 节点的 textContent 覆盖成静态
+              文案，两者抢同一个属性就会出现「数量显示不出来」。文案统一由
+              updateButtons 里的 tr() 负责，HTML 里这行中文只是首帧的兜底。
+            -->
+            <button type="button" class="btn" id="btnRemoveCompressed" disabled data-i18n-title="ui.removeCompressedTitle" title="把已经压缩过的条目从队列里移除，不动文件也不动 Eagle 素材">移除已压缩</button>
             <div class="toolbar-spacer" data-page-node-id="Pu4FkUBNYxUrrlOPhk1CNr"></div>
             <div class="list-stat" id="listStat" data-page-node-id="thZitJLsByoG4HlbjsmCeA">尚未添加文件</div>
         </section>

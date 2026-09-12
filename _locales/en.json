@@ -58,6 +58,9 @@
     "hwHintOff": "FFmpeg provides no usable hardware encoder; CPU encoding will be used",
     "addFiles": "Add local files…",
     "clearList": "Clear list",
+    "removeCompressed": "Remove compressed",
+    "removeCompressedCount": "Remove compressed ({{count}})",
+    "removeCompressedTitle": "Remove already-compressed entries from the queue; files and Eagle items stay untouched",
     "noFiles": "No files added",
     "emptyTitle": "No videos added yet",
     "emptyDescription": "Select video items in Eagle before opening this plugin to load them automatically;\nor drag video files directly into this window.",
@@ -112,6 +115,9 @@
     "selectionAppend": "Add to task queue",
     "writeMarker": "Write an \"already compressed\" marker",
     "writeMarkerHint": "Re-compressing the same file later will show how many times and when. AVI / TS and similar containers cannot store this marker",
+    "tagCompressed": "Tag items after compressing",
+    "tagCompressedHint": "Only applies to items imported from Eagle. Files added from disk are not in the library and cannot be tagged. The tag is added, existing tags are kept",
+    "tagNamePlaceholder": "Compressed",
     "hdr_hdr10": "HDR10",
     "hdr_hlg": "HLG",
     "hdr_dolbyVision": "Dolby Vision",
@@ -150,6 +156,7 @@
     "ffmpegReady": "FFmpeg {{version}} ready",
     "ffmpegUnavailable": "FFmpeg unavailable",
     "addedFiles": "Added {{count}} files",
+    "removedCompressed": "Removed {{count}} already-compressed items from the queue (files untouched)",
     "autoLoaded": "Automatically loaded {{count}} items",
     "skippedFiles": "Skipped {{count}} non-video or duplicate files",
     "selectVideoFilter": "Video files",
@@ -195,6 +202,7 @@
     "backupDirSet": "Backup location set: {{dir}}",
     "finishedAll": "All done: {{done}} files",
     "finishedWithFailures": "{{done}} finished, {{failed}} did not succeed",
+    "taggedSummary": "; tagged {{count}} items with \"{{tag}}\"",
     "logExpandedSuffix": " (the log is now open — use “Copy diagnostics” to share it)"
   }
 }
