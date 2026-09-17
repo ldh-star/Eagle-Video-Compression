@@ -140,6 +140,16 @@ $NODE tests/test_queue_intake.js        # cancellation, queue intake, atomic com
 
 ## Changelog
 
+### 1.2.1
+
+**Fixed**
+
+- Fixed: backups could overwrite each other. Two videos that share a file name, processed in parallel, could pick the same backup path — the second overwrote the first, while both originals still went on to be replaced. Backups are now created exclusively and renamed when a name is taken, and the original is only replaced once its own backup has succeeded.
+
+- Fixed: a run could cover more files than the confirmation dialog listed. Items that finished probing while you were reading the dialog were picked up as well, and their originals would have been overwritten without ever appearing on that list. Only the confirmed batch runs now; anything that finishes probing afterwards waits for its own confirmation, and the status bar reports how many are still waiting.
+
+- Changed: the store description now leads with what the plugin actually does to your files — local batch compression that replaces the original, with an optional backup. The previous wording led with codecs and modes and never mentioned that the original is replaced.
+
 ### 1.2.0
 
 **Added**

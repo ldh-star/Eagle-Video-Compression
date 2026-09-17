@@ -335,19 +335,53 @@
         });
     }
 
-    /** 找不冲突的备份名时的重试上限。到这个量级基本是异常状态，不该无限循环。 */
+    /** 备份名冲突时的重试上限。到这个量级基本是异常状态，不该无限循环。 */
     var UNIQUE_PATH_MAX_TRIES = 1000;
 
     /**
-     * 若目标已存在则追加 -1 / -2 …，避免覆盖历史备份。
+     * 排他创建式复制：目标已存在就直接报 EEXIST，绝不覆盖。
+     *
+     * 【为什么不能「先 stat 挑个空位，再 copy 过去」】
+     * 那是这个函数的上一版写法，两步之间有时间窗：两个 worker 各自 stat 到
+     * 同一个空位，都认为没人占，随后后写的那一份把先写的盖掉。分散在不同
+     * 目录里的同名影片会因此抢到同一个备份名，而它们的原件接下来都会被
+     * 压缩结果替换 —— 其中一份就再也恢复不回来。备份形同虚设。
+     *
+     * COPYFILE_EXCL 把「这个名字没人用」的判定交给内核，并且和写入发生在同
+     * 一个系统调用里，不存在窗口。冲突只会以 EEXIST 的形式冒出来，换下一个
+     * 候选名重试即可。
+     */
+    function copyFileExclusiveAsync(src, dest) {
+        return new Promise(function (resolve, reject) {
+            var flag = fs.constants && fs.constants.COPYFILE_EXCL;
+            if (!flag) {
+                // 拿不到排他标志就宁可不备份。退化成可覆盖复制的话，界面会
+                // 显示「已备份」，实际上可能正盖掉另一份原件 —— 谎报的代价
+                // 是用户的原始素材，比直接说「备份失败」严重得多。
+                reject(new Error('当前运行环境不支持排他复制（COPYFILE_EXCL），已放弃备份以免覆盖已有文件'));
+                return;
+            }
+            fs.copyFile(src, dest, flag, function (err) {
+                if (err) {
+                    err.code = err.code || 'EIO';
+                    reject(err);
+                    return;
+                }
+                resolve(dest);
+            });
+        });
+    }
+
+    /**
+     * 复制进 dir，同名就自动改名（-1 / -2 …），绝不覆盖已有文件。
      *
      * 必须异步：备份目录常在 SMB / NFS / 没插的移动硬盘上，一次同步
      * existsSync 几十到几百毫秒，放在 while 循环里等于直接卡住渲染线程 ——
      * 界面会整块白掉，用户只能强制退出。
      *
-     * @returns {Promise<string>} 不冲突的路径
+     * @returns {Promise<string>} 实际写入的备份路径
      */
-    function uniquePathAsync(dir, name, maxTries) {
+    function copyIntoDirExclusiveAsync(src, dir, name, maxTries) {
         var ext = path.extname(name);
         var base = path.basename(name, ext);
         var limit = maxTries > 0 ? maxTries : UNIQUE_PATH_MAX_TRIES;
@@ -355,16 +389,15 @@
 
         function attempt() {
             var candidate = path.join(dir, i === 0 ? name : base + '-' + i + ext);
-            return new Promise(function (resolve) {
-                fs.stat(candidate, function (err) { resolve(!err); });
-            }).then(function (taken) {
-                if (!taken) return candidate;
-                i++;
-                if (i > limit) {
-                    throw new Error('备份目录里同名文件过多（>' + limit + '），已放弃：' + dir);
-                }
-                return attempt();
-            });
+            return copyFileExclusiveAsync(src, candidate)
+                .catch(function (err) {
+                    if (err.code !== 'EEXIST') throw err;
+                    i++;
+                    if (i > limit) {
+                        throw new Error('备份目录里同名文件过多（>' + limit + '），已放弃：' + dir);
+                    }
+                    return attempt();
+                });
         }
 
         return attempt();
@@ -1739,6 +1772,15 @@
         dom.appendConfirmMask.hidden = false;
     }
 
+    /**
+     * 用户在确认框里看到的那一批。
+     *
+     * 存的是 id + 路径 + 当时的设置，不是任务对象本身：任务对象在确认框开着
+     * 的这段时间里可能被移除，而设置快照保证「确认时承诺的备份状态」就是
+     * 「执行时采用的备份状态」。
+     */
+    var confirmedBatch = null;
+
     function start() {
         var settings = readSettingsFromUI();
         saveSettings();
@@ -1746,7 +1788,47 @@
         var tasks = pendingTasks();
         if (!tasks.length) return;
 
+        confirmedBatch = {
+            settings: settings,
+            entries: tasks.map(function (t) {
+                return { id: t.id, path: t.path, name: t.name };
+            })
+        };
+
         showConfirm(tasks, settings);
+    }
+
+    /**
+     * 把确认快照还原成任务对象。
+     *
+     * 【为什么要这么绕】早先 doStart() 会重新调一次 pendingTasks()。用户读
+     * 确认框的那几秒里，剩下的素材正好探测完、状态从 probing 变成 queued，
+     * 于是被重新算进范围 —— 实际压缩覆盖的文件比确认框列出的多，而用户根本
+     * 没见过那些文件名。覆盖是不可逆的，确认清单必须等于执行清单。
+     *
+     * 探测晚完成的那些文件不会被丢掉：它们留在队列里是 queued，这一轮跑完
+     * 状态栏会提示还有多少没处理，再点一次「开始」会为它们单独弹确认框。
+     */
+    function resolveConfirmedBatch(batch) {
+        var byId = {};
+        state.tasks.forEach(function (t) { byId[t.id] = t; });
+
+        var tasks = [];
+        batch.entries.forEach(function (e) {
+            var t = byId[e.id];
+            if (!t) return; // 确认期间被移除了
+            if (t.path !== e.path) {
+                // 路径对不上就不是当初确认的那个文件。宁可不压，也不能碰
+                // 用户没见过的路径。
+                log('warn', '[' + e.name + '] 路径在确认后发生了变化，本次已跳过');
+                return;
+            }
+            if (!t.meta || (t.status !== 'queued' && t.status !== 'error' && t.status !== 'incompatible')) {
+                return; // 状态已经变了（被别的操作处理过），不再自动纳入
+            }
+            tasks.push(t);
+        });
+        return tasks;
     }
 
     // 进度事件可能每秒到几十次。只刷新进度相关 DOM，并做 120ms 节流，
@@ -1791,9 +1873,20 @@
 
         dom.confirmMask.hidden = true;
 
-        var settings = readSettingsFromUI();
-        var tasks = pendingTasks();
+        // 只跑用户确认过的那一批。没有快照就不启动：宁可什么都不做，
+        // 也不能去压一份用户没见过的清单。
+        var batch = confirmedBatch;
+        confirmedBatch = null;
+        if (!batch) return;
+
+        var settings = batch.settings;
+        var tasks = resolveConfirmedBatch(batch);
         if (!tasks.length) return;
+
+        if (tasks.length < batch.entries.length) {
+            log('warn', '确认清单里 ' + batch.entries.length + ' 条，实际开始 ' +
+                tasks.length + ' 条，差额是确认期间被移除或状态已变的条目');
+        }
 
         // 正式压缩优先级高于预览分析：先杀掉采样进程，避免和正式编码抢 CPU。
         cancelSamplingEstimates();
@@ -1808,6 +1901,9 @@
             t.progress = 0;
             t.outputSize = null;
             t.liveInfo = '';
+            // 上一轮的备份路径必须清掉：它同时是「替换前二次确认」的凭据，
+            // 留着会让重跑的任务拿着旧凭据通过检查。
+            t.backupPath = '';
             renderTask(t);
         });
 
@@ -1910,6 +2006,17 @@
                     finishText += tr('runtime.taggedSummary', '；已为 {{count}} 个素材打上标签「{{tag}}」', {
                         count: session.tagged, tag: compressedTagName(runtimeSettings)
                     });
+                }
+
+                // 确认之后才探测完的素材不在本轮范围内（见 resolveConfirmedBatch），
+                // 队列里会剩下一片 queued。不点破的话，用户要么以为没跑完，
+                // 要么以为卡住了 —— 其实只是需要再确认一次。
+                if (!state.cancelToken.cancelled) {
+                    var leftover = pendingTasks().length;
+                    if (leftover > 0) {
+                        finishText += '；' + tr('runtime.leftoverHint',
+                            '还有 {{count}} 个未开始，点「开始」再确认一次', { count: leftover });
+                    }
                 }
                 setStatus(finishText, finishKind);
 
@@ -2145,26 +2252,40 @@
                 }
 
                 // 4) 备份原文件
-                //    目录为空时静默跳过：勾选框在没目录的情况下是禁用的，
-                //    正常走不到这里。真走到了也不能因为「备份没配好」就把
-                //    整个压缩判失败 —— 但必须留一条日志，事后查得到。
-                if (!settings.backup) return null;
-                if (!settings.backupDir) {
-                    log('warn', '[' + t.name + '] 已勾选备份但未指定目录，本次跳过备份');
-                    return null;
-                }
+                //
+                //    判据用 backupEffective 而不是 settings.backup：勾选了却没有
+                //    目录时，确认框已经明说「未开启备份，原文件将无法恢复」，
+                //    用户是在知情的前提下开始的，这时按「无备份」继续压是对的。
+                //    反过来，确认框承诺了有备份（两者都成立）却备份不成，就必须
+                //    中断 —— 半途失败还继续替换，等于告诉用户有退路其实没有。
+                if (!backupEffective(settings)) return null;
                 try {
                     if (!fs.existsSync(settings.backupDir)) fs.mkdirSync(settings.backupDir, { recursive: true });
                 } catch (e) {
                     throw new Error('无法创建备份目录：' + settings.backupDir + '（' + e.message + '）');
                 }
-                return uniquePathAsync(settings.backupDir, t.name)
-                    .then(function (backupPath) { return copyFileAsync(t.path, backupPath); });
+                return copyIntoDirExclusiveAsync(t.path, settings.backupDir, t.name)
+                    .then(function (backupPath) {
+                        // 留痕：替换前会拿它做二次确认，事后也能查到原件存到了哪。
+                        t.backupPath = backupPath;
+                        log('info', '[' + t.name + '] 原件已备份到 ' + backupPath);
+                    });
             })
             .then(function () {
                 if (state.cancelToken.cancelled) throw Core.CancelledError();
 
                 // 5) 替换原文件
+                //
+                //    二次确认：备份开着就必须已经真的拿到备份路径。备份是紧邻的
+                //    上一步，失败会直接中断流程，这里本该是死代码 —— 但它是唯一
+                //    挡在「覆盖用户原件」前面的显式闸门，将来谁调整步骤顺序、
+                //    或者给备份加了某个静默跳过的分支，这条会立刻把问题变成一次
+                //    可见的失败，而不是一份找不回来的原件。
+                if (backupEffective(settings) && !t.backupPath) {
+                    throw new Error(tr('runtime.replaceWithoutBackup',
+                        '备份未成功完成，已中止替换以保护原文件'));
+                }
+
                 //    优先走 Eagle 的 replaceFile（会自动刷新缩略图并保持素材元数据一致）；
                 //    失败或未关联 Eagle 素材时，退回直接覆盖。
                 if (settings.replaceInEagle && t.eagleItem && typeof t.eagleItem.replaceFile === 'function') {
@@ -3213,7 +3334,9 @@
             renderList: renderList,
             renderTask: renderTask,
             sampleCacheKey: sampleCacheKey,
-            uniquePathAsync: uniquePathAsync,
+            copyFileExclusiveAsync: copyFileExclusiveAsync,
+            copyIntoDirExclusiveAsync: copyIntoDirExclusiveAsync,
+            resolveConfirmedBatch: resolveConfirmedBatch,
             scheduleSamplingEstimates: scheduleSamplingEstimates,
             stopSamplingEstimates: stopSamplingEstimates,
             updateSampleAnalysisControls: updateSampleAnalysisControls,

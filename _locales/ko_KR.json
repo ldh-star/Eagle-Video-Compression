@@ -139,6 +139,7 @@
     "sampleTooltip": "{{count}}개 구간의 시험 인코딩 기준, 중앙값 {{size}}. 보장값이 아닙니다.",
     "completed": "완료: {{original}} → {{output}}({{change}})",
     "cancelled": "취소됨",
+    "replaceWithoutBackup": "백업이 완료되지 않아 원본 보호를 위해 교체를 중단했습니다",
     "skippedNoGain": "압축 후에도 크기가 줄지 않아 원본 파일을 유지했습니다",
     "skippedNoGainDetail": "압축 후 {{output}}로 원본 {{original}}보다 작지 않아 원본 파일을 유지했습니다",
     "estimatedBySampling": "CRF 예측은 각 동영상의 계층적 샘플 인코딩을 기반으로 하며, 범위는 보장값이 아닙니다.",
@@ -201,6 +202,7 @@
     "appendCancelled": "취소했습니다. 새 항목이 추가되지 않았습니다",
     "backupDirSet": "백업 위치를 설정했습니다: {{dir}}",
     "finishedAll": "모두 완료: {{done}}개",
+    "leftoverHint": "{{count}}개가 아직 시작되지 않았습니다. 「시작」을 눌러 다시 확인하세요",
     "finishedWithFailures": "{{done}}개 완료, {{failed}}개 실패",
     "taggedSummary": "; {{count}}개 항목에 \"{{tag}}\" 태그를 추가했습니다",
     "logExpandedSuffix": "(로그를 펼쳤습니다. “진단 정보 복사”로 공유할 수 있습니다)"

@@ -139,6 +139,7 @@
     "sampleTooltip": "Based on {{count}} sample encodes; midpoint {{size}}. Not guaranteed.",
     "completed": "Done: {{original}} → {{output}} ({{change}})",
     "cancelled": "Cancelled",
+    "replaceWithoutBackup": "Backup did not complete — replacement aborted to protect the original",
     "skippedNoGain": "Output is not smaller — original file kept",
     "skippedNoGainDetail": "Compressed to {{output}}, not smaller than the original {{original}} — original kept",
     "estimatedBySampling": "CRF estimate is based on stratified sample encodes for each video; the range is not guaranteed.",
@@ -201,6 +202,7 @@
     "appendCancelled": "Cancelled — no new items were added",
     "backupDirSet": "Backup location set: {{dir}}",
     "finishedAll": "All done: {{done}} files",
+    "leftoverHint": "{{count}} more not started — press Start to confirm them",
     "finishedWithFailures": "{{done}} finished, {{failed}} did not succeed",
     "taggedSummary": "; tagged {{count}} items with \"{{tag}}\"",
     "logExpandedSuffix": " (the log is now open — use “Copy diagnostics” to share it)"

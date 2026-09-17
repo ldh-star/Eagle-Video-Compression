@@ -12,7 +12,7 @@ A local batch video compression plugin for Eagle. It picks up the videos you hav
 - Controls for resolution, frame rate, audio, encoding speed, concurrency, and 10-bit source handling.
 - HDR sources are detected and their colour metadata is carried through re-encoding; already-compressed files are marked so you do not run a second lossy pass by accident.
 - Optional GPU hardware encoding: Apple VideoToolbox on macOS, and NVIDIA NVENC, Intel Quick Sync or AMD AMF on Windows. Used automatically when suitable hardware is present, falling back to CPU software encoding otherwise.
-- Backup is off by default and cannot be enabled until you pick a backup folder. Without it there is no copy of the original.
+- Backup is off by default and cannot be enabled until you pick a backup folder. Without it there is no copy of the original. Backups never overwrite each other: when two files share a name, the second is saved under a new one.
 - Settings persist, the UI follows Eagle's theme, and eight languages are available.
 
 <!-- section:usage -->
@@ -84,6 +84,11 @@ The **Hardware acceleration** dropdown has three options:
 
 <!-- section:changelog -->
 ## Changelog
+
+### 1.2.1
+
+- Fixed: backups could overwrite each other. Two videos that share a file name, processed in parallel, could pick the same backup path — the second overwrote the first, while both originals still went on to be replaced. Backups are now created exclusively and renamed when a name is taken, and the original is only replaced once its own backup has succeeded.
+- Fixed: a run could cover more files than the confirmation dialog listed. Items that finished probing while you were reading the dialog were picked up as well, and their originals would have been overwritten without ever appearing on that list. Only the confirmed batch runs now; anything that finishes probing afterwards waits for its own confirmation, and the status bar reports how many are still waiting.
 
 ### 1.2.0
 

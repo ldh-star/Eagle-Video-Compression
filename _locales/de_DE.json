@@ -139,6 +139,7 @@
     "sampleTooltip": "Basiert auf {{count}} Testkodierungen; Mittelwert {{size}}. Keine Garantie.",
     "completed": "Fertig: {{original}} → {{output}} ({{change}})",
     "cancelled": "Abgebrochen",
+    "replaceWithoutBackup": "Backup nicht abgeschlossen — Ersetzung zum Schutz der Originaldatei abgebrochen",
     "skippedNoGain": "Nach der Komprimierung nicht kleiner — Originaldatei behalten",
     "skippedNoGainDetail": "Auf {{output}} komprimiert, nicht kleiner als das Original ({{original}}) — Original behalten",
     "estimatedBySampling": "Die CRF-Schätzung basiert auf geschichteten Testkodierungen für jedes Video; der Bereich ist nicht garantiert.",
@@ -201,6 +202,7 @@
     "appendCancelled": "Abgebrochen — es wurden keine neuen Elemente hinzugefügt",
     "backupDirSet": "Sicherungsordner festgelegt: {{dir}}",
     "finishedAll": "Alles fertig: {{done}} Dateien",
+    "leftoverHint": "Noch {{count}} nicht gestartet — erneut auf Start klicken, um sie zu bestätigen",
     "finishedWithFailures": "{{done}} abgeschlossen, {{failed}} nicht erfolgreich",
     "taggedSummary": "; {{count}} Objekte mit \"{{tag}}\" verschlagwortet",
     "logExpandedSuffix": " (Das Protokoll ist geöffnet — mit „Diagnose kopieren\" teilen)"

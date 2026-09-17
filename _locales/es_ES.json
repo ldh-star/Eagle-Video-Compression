@@ -139,6 +139,7 @@
     "sampleTooltip": "Basado en {{count}} codificaciones de muestra; punto medio {{size}}. No es una garantía.",
     "completed": "Completado: {{original}} → {{output}} ({{change}})",
     "cancelled": "Cancelado",
+    "replaceWithoutBackup": "La copia de seguridad no se completó: se canceló el reemplazo para proteger el original",
     "skippedNoGain": "El resultado no es más pequeño; se conserva el archivo original",
     "skippedNoGainDetail": "Comprimido a {{output}}, no más pequeño que el original {{original}}; se conserva el original",
     "estimatedBySampling": "La estimación CRF se basa en codificaciones de muestras estratificadas de cada vídeo; el rango no está garantizado.",
@@ -201,6 +202,7 @@
     "appendCancelled": "Cancelado: no se añadió ningún elemento nuevo",
     "backupDirSet": "Ubicación de copia establecida: {{dir}}",
     "finishedAll": "Todo listo: {{done}} archivos",
+    "leftoverHint": "Quedan {{count}} sin empezar: pulsa Iniciar para confirmarlas",
     "finishedWithFailures": "{{done}} completados, {{failed}} sin éxito",
     "taggedSummary": "; se etiquetaron {{count}} elementos con «{{tag}}»",
     "logExpandedSuffix": " (el registro está abierto: usa «Copiar diagnóstico» para compartirlo)"

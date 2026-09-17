@@ -139,6 +139,7 @@
     "sampleTooltip": "基于 {{count}} 段实测编码；中心值 {{size}}，不是保证值",
     "completed": "完成：{{original}} → {{output}}（{{change}}）",
     "cancelled": "已取消",
+    "replaceWithoutBackup": "备份未成功完成，已中止替换以保护原文件",
     "skippedNoGain": "压缩后没有变小，已保留原文件",
     "skippedNoGainDetail": "压缩后 {{output}}，不比原片 {{original}} 小，已保留原文件",
     "estimatedBySampling": "CRF 预估基于每个视频的分层采样实测；区间不是保证值。",
@@ -201,6 +202,7 @@
     "appendCancelled": "已取消，未添加新素材",
     "backupDirSet": "备份位置已设置：{{dir}}",
     "finishedAll": "全部完成：{{done}} 个",
+    "leftoverHint": "还有 {{count}} 个未开始，点「开始」再确认一次",
     "finishedWithFailures": "完成 {{done}} 个，{{failed}} 个未成功",
     "taggedSummary": "；已为 {{count}} 个素材打上标签「{{tag}}」",
     "logExpandedSuffix": "（日志已展开，可点「复制诊断信息」发给我）"

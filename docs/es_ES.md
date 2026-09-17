@@ -12,7 +12,7 @@ Un complemento de transcodificación local para comprimir vídeos por lotes en E
 - Controles de resolución, velocidad de fotogramas, audio, velocidad de codificación, concurrencia y tratamiento de fuentes de 10 bits.
 - Detecta fuentes HDR y conserva sus metadatos de color al recodificar; marca los archivos ya comprimidos para evitar una segunda pasada con pérdida por descuido.
 - Codificación por GPU opcional: Apple VideoToolbox en macOS y NVIDIA NVENC, Intel Quick Sync o AMD AMF en Windows. Se usa automáticamente cuando hay hardware compatible y vuelve a la codificación por software en CPU en caso contrario.
-- La copia de seguridad está desactivada por defecto y no puede activarse hasta elegir una carpeta de destino. Si la dejas desactivada, no quedará ninguna copia del archivo original.
+- La copia de seguridad está desactivada por defecto y no puede activarse hasta elegir una carpeta de destino. Si la dejas desactivada, no quedará ninguna copia del archivo original. Las copias nunca se sobrescriben entre sí: si dos archivos coinciden en el nombre, la segunda se guarda con otro.
 - Los ajustes se conservan, la interfaz sigue el tema de Eagle y hay ocho idiomas disponibles.
 
 <!-- section:usage -->
@@ -84,6 +84,11 @@ El selector «Aceleración por hardware» ofrece tres opciones:
 
 <!-- section:changelog -->
 ## Historial de versiones
+
+### 1.2.1
+
+- Corregido: las copias podían sobrescribirse entre sí. Al procesar en paralelo vídeos con el mismo nombre en carpetas distintas, ambos podían elegir la misma ruta de copia: la segunda sobrescribía a la primera y, aun así, los dos originales se sustituían después. Ahora las copias se crean de forma exclusiva y se renombran si el nombre está ocupado; el original solo se sustituye cuando su propia copia se ha completado.
+- Corregido: la ejecución podía abarcar más archivos de los que indicaba el diálogo de confirmación. Los archivos que terminaban de analizarse mientras leías el diálogo también se incluían y sus originales se sobrescribían sin haber aparecido nunca en la lista. Ahora solo se ejecuta el lote confirmado; lo que termine de analizarse después espera su propia confirmación y la barra de estado indica cuántos quedan.
 
 ### 1.2.0
 

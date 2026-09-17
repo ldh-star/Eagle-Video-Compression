@@ -518,4 +518,149 @@ add({
     }
 });
 
+// ---------------------------------------------------------------------------
+// 备份：同名并行不得互相覆盖
+// ---------------------------------------------------------------------------
+
+add({
+    id: 'NEW-07',
+    title: '不同目录的同名影片并行备份，两份备份都必须完整且互不被覆盖',
+    area: 'ui',
+    level: 'P0',
+    status: 'implemented',
+    issue: 'uniquePathAsync() 先 stat 出一个空位，随后 copyFileAsync() 以可覆盖方式写入。' +
+           '两个 worker 各自 stat 到同一个空位，都认为没人占，后写的那一份就把先写的盖掉 —— ' +
+           '分散在不同目录里的同名影片会抢到同一个备份名，而它们的原件接下来都会被压缩结果替换，' +
+           '其中一份再也恢复不回来。备份开着却等于没开，这是不可逆的数据丢失。',
+    contract: '挑名与写入合成为一次排他创建（COPYFILE_EXCL）；冲突时自动改名重试，' +
+              '并发下每个源文件都拿到各自独立的备份文件',
+    ref: 'js/app.js copyIntoDirExclusiveAsync',
+    run: async function () {
+        const app = await Env.makeApp();
+        const dir = H.tmpDir('eagle-vc-backup-');
+        try {
+            // 两个不同目录、同一个文件名 —— 正是审核描述的场景
+            const srcA = path.join(H.tmpDir('eagle-vc-srcA-'), 'movie.mp4');
+            const srcB = path.join(H.tmpDir('eagle-vc-srcB-'), 'movie.mp4');
+            fs.writeFileSync(srcA, 'original-A');
+            fs.writeFileSync(srcB, 'original-B');
+
+            const copy = app.win.App._internal.copyIntoDirExclusiveAsync;
+            // 并行发起：如果是「先 stat 再 copy」，两次都会选中 movie.mp4
+            const [outA, outB] = await Promise.all([
+                copy(srcA, dir, 'movie.mp4'),
+                copy(srcB, dir, 'movie.mp4')
+            ]);
+
+            assert.notStrictEqual(outA, outB,
+                '两个源文件拿到了同一个备份路径（' + outA + '），后写的那份已经覆盖了先写的');
+            assert.strictEqual(fs.readFileSync(outA, 'utf8'), 'original-A',
+                '备份 A 的内容不是源文件 A 的 —— 它被另一份备份覆盖了');
+            assert.strictEqual(fs.readFileSync(outB, 'utf8'), 'original-B',
+                '备份 B 的内容不是源文件 B 的 —— 它被另一份备份覆盖了');
+            assert.strictEqual(fs.readdirSync(dir).length, 2,
+                '备份目录里应当留下 2 份备份，实际 ' + fs.readdirSync(dir).length + ' 份');
+        } finally {
+            app.close();
+        }
+    }
+});
+
+add({
+    id: 'NEW-08',
+    title: '备份目标已存在时必须报 EEXIST，绝不能覆盖已有文件',
+    area: 'ui',
+    level: 'P0',
+    status: 'implemented',
+    issue: '排他创建是 NEW-07 唯一的依靠。如果 copyFile 退化成可覆盖写入（比如忘了传 ' +
+           'COPYFILE_EXCL，或者运行环境拿不到这个常量），冲突就不会报错，而是静默覆盖 —— ' +
+           '用户界面上显示「已备份」，实际备份目录里少了一份原件。',
+    contract: '目标已存在时 reject，err.code === EEXIST，且目标文件内容保持原样',
+    ref: 'js/app.js copyFileExclusiveAsync',
+    run: async function () {
+        const app = await Env.makeApp();
+        const dir = H.tmpDir('eagle-vc-excl-');
+        try {
+            const src = path.join(dir, 'src.mp4');
+            const dest = path.join(dir, 'taken.mp4');
+            fs.writeFileSync(src, 'new');
+            fs.writeFileSync(dest, 'existing');
+
+            let err = null;
+            try {
+                await app.win.App._internal.copyFileExclusiveAsync(src, dest);
+            } catch (e) {
+                err = e;
+            }
+
+            assert(err, '目标已存在却复制成功了 —— 排他标志没生效，备份会覆盖已有文件');
+            assert.strictEqual(err.code, 'EEXIST',
+                '应当以 EEXIST 报冲突，实际是 ' + err.code + '：' + err.message);
+            assert.strictEqual(fs.readFileSync(dest, 'utf8'), 'existing',
+                '已存在的备份文件被覆盖掉了');
+        } finally {
+            app.close();
+        }
+    }
+});
+
+// ---------------------------------------------------------------------------
+// 确认范围：执行清单必须等于确认清单
+// ---------------------------------------------------------------------------
+
+add({
+    id: 'NEW-09',
+    title: '确认之后才探测完的素材不得进入本轮执行范围',
+    area: 'ui',
+    level: 'P0',
+    status: 'implemented',
+    issue: 'start() 用当时的 pendingTasks() 生成确认清单，doStart() 却重新读一次。' +
+           '用户读确认框的那几秒里，剩下的素材正好探测完、状态从 probing 变成 queued，' +
+           '于是被算进实际压缩范围 —— 覆盖的文件比确认框列出的多，而用户根本没见过那些文件名。' +
+           '替换原文件不可逆，确认清单必须等于执行清单。',
+    contract: '只执行确认快照里的条目；路径变了、已被移除、状态已变的都不执行；' +
+              '快照之外的新条目一律不自动纳入',
+    ref: 'js/app.js resolveConfirmedBatch',
+    run: async function () {
+        const app = await Env.makeApp();
+        try {
+            const st = app.win.App._state;
+            st.tasks.length = 0;
+
+            const confirmed1 = taskWith('c1', 'queued');
+            const confirmed2 = taskWith('c2', 'queued');
+            const confirmed3 = taskWith('c3', 'error');
+            const late = taskWith('late', 'queued');       // 确认后才探测完
+            st.tasks.push(confirmed1, confirmed2, confirmed3, late);
+
+            // 只确认了前三条（late 当时还在 probing，不在 pendingTasks 里）
+            const batch = {
+                settings: {},
+                entries: [
+                    { id: 'c1', path: confirmed1.path, name: confirmed1.name },
+                    { id: 'c2', path: confirmed2.path, name: confirmed2.name },
+                    { id: 'c3', path: confirmed3.path, name: confirmed3.name }
+                ]
+            };
+
+            // 用户读确认框期间：c1 被移除，c2 的路径被换掉，late 探测完成
+            st.tasks.splice(st.tasks.indexOf(confirmed1), 1);
+            confirmed2.path = '/tmp/eagle-vc-moved.mp4';
+
+            const tasks = app.win.App._internal.resolveConfirmedBatch(batch);
+            const ids = tasks.map(function (t) { return t.id; });
+
+            assert(!ids.includes('late'),
+                '确认之后才探测完的素材进了执行范围 —— 它没出现在确认框里，' +
+                '用户不知情就被覆盖了原文件');
+            assert(!ids.includes('c1'), '确认期间被移除的条目不该再执行');
+            assert(!ids.includes('c2'), '路径在确认后变了的条目不该再执行');
+            assert(ids.includes('c3'), '仅状态为 error 的已确认条目应当保留（重试是既定行为）');
+            assert.strictEqual(tasks.length, 1, '实际执行清单应为 1 条，实际 ' + tasks.length + ' 条');
+        } finally {
+            app.close();
+        }
+    }
+});
+
 module.exports = cases;

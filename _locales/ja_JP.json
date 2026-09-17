@@ -139,6 +139,7 @@
     "sampleTooltip": "{{count}} 区間の試験エンコードに基づく推定値。中心値は {{size}} です。保証値ではありません。",
     "completed": "完了: {{original}} → {{output}}（{{change}}）",
     "cancelled": "キャンセル済み",
+    "replaceWithoutBackup": "バックアップが完了しなかったため、元ファイルを守るために置き換えを中止しました",
     "skippedNoGain": "圧縮後もサイズが小さくならないため、元ファイルを保持しました",
     "skippedNoGainDetail": "圧縮後 {{output}}、元の {{original}} より小さくならないため元ファイルを保持しました",
     "estimatedBySampling": "CRF の推定は各動画の層化サンプルエンコードに基づいています。範囲は保証値ではありません。",
@@ -201,6 +202,7 @@
     "appendCancelled": "キャンセルしました。新しい素材は追加されていません",
     "backupDirSet": "バックアップ場所を設定しました：{{dir}}",
     "finishedAll": "すべて完了：{{done}} 件",
+    "leftoverHint": "残り {{count}} 件が未開始です。「開始」を押してもう一度確認してください",
     "finishedWithFailures": "{{done}} 件完了、{{failed}} 件が失敗",
     "taggedSummary": "；{{count}} 件に「{{tag}}」タグを付与",
     "logExpandedSuffix": "（ログを開きました。「診断情報をコピー」で共有できます）"

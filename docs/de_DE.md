@@ -12,7 +12,7 @@ Ein lokales Plugin für die Stapelkomprimierung von Videos in Eagle. Es lädt di
 - Einstellbar sind Auflösung, Bildrate, Audio, Kodiergeschwindigkeit, Parallelität und der Umgang mit 10-Bit-Quellen.
 - HDR-Quellen werden erkannt, und die Farbmetadaten bleiben beim Neukodieren erhalten. Bereits komprimierte Dateien werden markiert, damit kein zweiter verlustbehafteter Durchgang aus Versehen passiert.
 - Optionale GPU-Hardwarekodierung: Apple VideoToolbox unter macOS sowie NVIDIA NVENC, Intel Quick Sync und AMD AMF unter Windows. Wird bei vorhandener geeigneter Hardware automatisch genutzt und fällt sonst auf die CPU-Softwarekodierung zurück.
-- Die Sicherung ist standardmäßig deaktiviert und lässt sich erst nach Auswahl eines Sicherungsordners einschalten. Bleibt sie aus, existiert keine Kopie der Originaldatei.
+- Die Sicherung ist standardmäßig deaktiviert und lässt sich erst nach Auswahl eines Sicherungsordners einschalten. Bleibt sie aus, existiert keine Kopie der Originaldatei. Sicherungen überschreiben sich nie gegenseitig: Bei Namensgleichheit wird die zweite unter einem neuen Namen gespeichert.
 - Einstellungen bleiben erhalten, die Oberfläche folgt dem Eagle-Design, acht Sprachen werden unterstützt.
 
 <!-- section:usage -->
@@ -84,6 +84,11 @@ Die Auswahl „Hardwarebeschleunigung“ bietet drei Optionen:
 
 <!-- section:changelog -->
 ## Versionsverlauf
+
+### 1.2.1
+
+- Behoben: Sicherungen konnten sich gegenseitig überschreiben. Gleichnamige Videos in verschiedenen Ordnern konnten bei paralleler Verarbeitung denselben Sicherungspfad wählen — die zweite überschrieb die erste, während beide Originale anschließend trotzdem ersetzt wurden. Sicherungen werden jetzt exklusiv erstellt und bei belegtem Namen umbenannt; ersetzt wird ein Original erst, wenn seine eigene Sicherung erfolgreich war.
+- Behoben: ein Durchlauf konnte mehr Dateien umfassen als der Bestätigungsdialog auflistete. Dateien, deren Analyse erst beim Lesen des Dialogs abgeschlossen wurde, wurden mitgenommen und ihre Originale überschrieben, ohne je auf der Liste gestanden zu haben. Es läuft jetzt nur die bestätigte Charge; später fertig analysierte Dateien warten auf eine eigene Bestätigung, und die Statusleiste nennt die verbleibende Anzahl.
 
 ### 1.2.0
 

@@ -139,6 +139,7 @@
     "sampleTooltip": "基於 {{count}} 段實測編碼；中心值 {{size}}，不是保證值",
     "completed": "完成：{{original}} → {{output}}（{{change}}）",
     "cancelled": "已取消",
+    "replaceWithoutBackup": "備份未完成，已中止取代以保護原檔案",
     "skippedNoGain": "壓縮後沒有變小，已保留原檔案",
     "skippedNoGainDetail": "壓縮後 {{output}}，不比原片 {{original}} 小，已保留原檔案",
     "estimatedBySampling": "CRF 預估基於每個影片的分層採樣實測；區間不是保證值。",
@@ -201,6 +202,7 @@
     "appendCancelled": "已取消，未新增素材",
     "backupDirSet": "備份位置已設定：{{dir}}",
     "finishedAll": "全部完成：{{done}} 個",
+    "leftoverHint": "還有 {{count}} 個未開始，點「開始」再確認一次",
     "finishedWithFailures": "完成 {{done}} 個，{{failed}} 個未成功",
     "taggedSummary": "；已為 {{count}} 個素材加上「{{tag}}」標籤",
     "logExpandedSuffix": "（日誌已展開，可點「複製診斷資訊」傳給我）"

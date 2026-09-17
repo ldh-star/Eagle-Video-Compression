@@ -1,6 +1,6 @@
 # 视频压缩 · 各语言提交文案
 
-> 由 `docs/<语系>.md` 自动生成，对应版本 **1.2.0**。
+> 由 `docs/<语系>.md` 自动生成，对应版本 **1.2.1**。
 > 每个语系三节：简述 / 使用说明 / 版本日志，可直接复制到 Eagle 插件中心对应语系的字段。
 > 只含投稿要求的 4 个语系；其余语系的 `docs/` 是插件界面语言的说明来源，不进提交表单。
 > 内容改动请改 `docs/` 下的源文件后重跑 `node tools/gen-submission.js`，不要直接改本文件。
@@ -20,7 +20,7 @@ A local batch video compression plugin for Eagle. It picks up the videos you hav
 - Controls for resolution, frame rate, audio, encoding speed, concurrency, and 10-bit source handling.
 - HDR sources are detected and their colour metadata is carried through re-encoding; already-compressed files are marked so you do not run a second lossy pass by accident.
 - Optional GPU hardware encoding: Apple VideoToolbox on macOS, and NVIDIA NVENC, Intel Quick Sync or AMD AMF on Windows. Used automatically when suitable hardware is present, falling back to CPU software encoding otherwise.
-- Backup is off by default and cannot be enabled until you pick a backup folder. Without it there is no copy of the original.
+- Backup is off by default and cannot be enabled until you pick a backup folder. Without it there is no copy of the original. Backups never overwrite each other: when two files share a name, the second is saved under a new one.
 - Settings persist, the UI follows Eagle's theme, and eight languages are available.
 
 ### 使用说明
@@ -90,6 +90,11 @@ The **Hardware acceleration** dropdown has three options:
 - Temporary files created while compressing are written next to the source file and cleaned up when the run ends or at the next start, so they do not accumulate.
 
 ### 版本日志
+
+#### 1.2.1
+
+- Fixed: backups could overwrite each other. Two videos that share a file name, processed in parallel, could pick the same backup path — the second overwrote the first, while both originals still went on to be replaced. Backups are now created exclusively and renamed when a name is taken, and the original is only replaced once its own backup has succeeded.
+- Fixed: a run could cover more files than the confirmation dialog listed. Items that finished probing while you were reading the dialog were picked up as well, and their originals would have been overwritten without ever appearing on that list. Only the confirmed batch runs now; anything that finishes probing afterwards waits for its own confirmation, and the status bar reports how many are still waiting.
 
 #### 1.2.0
 
@@ -168,7 +173,7 @@ Eagle 内で動画を一括圧縮するローカルトランスコードプラ�
 - 解像度、フレームレート、音声、エンコード速度、並列数、10bit ソースの扱いを調整できます。
 - HDR ソースを自動判別し、再エンコード時に色情報を保持します。圧縮済みファイルにはマーカーを書き込み、二重の劣化を防ぎます。
 - GPU ハードウェアエンコードに対応：macOS では Apple VideoToolbox、Windows では NVIDIA NVENC / Intel QSV / AMD AMF。既定は自動で、利用可能なハードウェアがない場合は CPU ソフトウェアエンコードにフォールバックします。
-- バックアップは既定でオフ。バックアップ先フォルダーを指定するまで有効にできません。オフのままだと元ファイルの控えは残りません。
+- バックアップは既定でオフ。バックアップ先フォルダーを指定するまで有効にできません。オフのままだと元ファイルの控えは残りません。同名のバックアップが上書きされることはありません。重なる場合は自動的に別名で保存します。
 - 設定は保存され、UI は Eagle のテーマに追従し、8 言語に対応します。
 
 ### 使用说明
@@ -238,6 +243,11 @@ Eagle 内で動画を一括圧縮するローカルトランスコードプラ�
 - 圧縮中の一時ファイルは元ファイルの隣に作られ、処理の終了時または次回起動時に自動で削除されるため、容量を占有し続けることはありません。
 
 ### 版本日志
+
+#### 1.2.1
+
+- 修正：バックアップが互いに上書きされる可能性がありました。異なるフォルダーにある同名の動画を並行処理すると同じバックアップ先が選ばれ、後から書かれたものが先のものを上書きし、その後どちらの元ファイルも置き換えられていました。現在は排他作成に切り替え、名前が使われている場合は自動的に別名で保存します。対応する元ファイルのバックアップが成功した場合にのみ置き換えます。
+- 修正：実際の圧縮範囲が確認ダイアログのリストより広くなることがありました。ダイアログを読んでいる間に解析が完了した素材も対象に含まれ、一覧に表示されないまま元ファイルが置き換えられていました。現在は確認したバッチのみを実行し、後から解析が完了した分は別途確認を待ちます。残り件数はステータスバーに表示されます。
 
 #### 1.2.0
 
@@ -316,7 +326,7 @@ Eagle 内で動画を一括圧縮するローカルトランスコードプラ�
 - 可调分辨率、帧率、音轨、编码速度、并发数与 10bit 素材的处理方式。
 - 自动识别 HDR 素材并在重编码时保留色彩元数据；对已经压过的文件会打标记，避免重复有损压缩。
 - 支持 GPU 硬件编码：macOS 上使用 Apple VideoToolbox，Windows 上支持 NVIDIA NVENC、Intel QSV 与 AMD AMF。默认自动选择，检测不到可用硬件时回退 CPU 软件编码。
-- 备份默认关闭，必须先指定备份目录才能开启；不开备份就没有原文件副本。
+- 备份默认关闭，必须先指定备份目录才能开启；不开备份就没有原文件副本。同名备份不会互相覆盖，重复时自动改名保存。
 - 设置持久化保存，界面跟随 Eagle 主题，支持八种语言。
 
 ### 使用说明
@@ -386,6 +396,11 @@ Eagle 内で動画を一括圧縮するローカルトランスコードプラ�
 - 压缩过程中的临时文件写在源文件旁边，任务结束或下次启动时自动清理，不会长期占用空间。
 
 ### 版本日志
+
+#### 1.2.1
+
+- 修复：备份可能互相覆盖。不同目录下同名的影片并行处理时，可能选中同一个备份路径，后写的覆盖先写的，而两份原件随后仍会被替换。现在备份改用排他创建，名字被占用时自动改名；只有对应原件备份成功才会替换。
+- 修复：实际压缩范围可能超出确认清单。阅读确认框期间才完成探测的素材也会被算进来，它们的原文件会在从未出现在清单上的情况下被覆盖。现在只执行确认过的那批；之后探测完成的会等你再确认一次，状态栏会提示还剩几个。
 
 #### 1.2.0
 
@@ -464,7 +479,7 @@ Eagle 内で動画を一括圧縮するローカルトランスコードプラ�
 - 可調整解析度、影格率、音軌、編碼速度、並行數以及 10bit 素材的處理方式。
 - 自動辨識 HDR 素材並在重新編碼時保留色彩中繼資料；對已壓縮過的檔案會寫入標記，避免重複有損壓縮。
 - 支援 GPU 硬體編碼：macOS 上使用 Apple VideoToolbox，Windows 上支援 NVIDIA NVENC、Intel QSV 與 AMD AMF。預設自動選擇，偵測不到可用硬體時回退 CPU 軟體編碼。
-- 備份預設關閉，必須先指定備份資料夾才能啟用；不開備份就沒有原檔副本。
+- 備份預設關閉，必須先指定備份資料夾才能啟用；不開備份就沒有原檔副本。同名備份不會互相覆蓋，重複時自動改名儲存。
 - 設定會持久保存，介面跟隨 Eagle 佈景主題，支援八種語言。
 
 ### 使用说明
@@ -534,6 +549,11 @@ Eagle 内で動画を一括圧縮するローカルトランスコードプラ�
 - 壓縮過程中的暫存檔寫在來源檔案旁邊，工作結束或下次啟動時自動清理，不會長期佔用空間。
 
 ### 版本日志
+
+#### 1.2.1
+
+- 修正：備份可能互相覆蓋。不同資料夾中同名的影片平行處理時，可能選中同一個備份路徑，後寫的覆蓋先寫的，而兩份原檔隨後仍會被取代。現在備份改用排他建立，名稱被佔用時自動改名；只有對應原檔備份成功才會取代。
+- 修正：實際壓縮範圍可能超出確認清單。閱讀確認視窗期間才完成偵測的素材也會被算進來，它們的原檔會在從未出現在清單上的情況下被覆寫。現在只執行確認過的那一批；之後完成偵測的會等你再確認一次，狀態列會提示還剩幾個。
 
 #### 1.2.0
 

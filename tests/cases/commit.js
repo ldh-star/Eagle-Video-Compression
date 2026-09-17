@@ -246,33 +246,38 @@ add({
 
 add({
     id: 'P1-18',
-    title: 'uniquePath 不能用同步 existsSync 循环探测',
+    title: '备份挑名不能做同步探测，且冲突次数要有上限',
     area: 'commit',
     level: 'P1',
     status: 'implemented',
-    issue: 'uniquePath 在 while 循环里同步 existsSync 找不冲突的备份名。备份目录在网络盘' +
-           '（SMB/NFS）上时，一次 existsSync 可能几十毫秒，卡住整个渲染线程；' +
-           '而且这个循环没有次数上限，目录里真堆了几百个同名备份就会一直转下去。',
-    contract: '改成异步探测（fs.stat 回调）；冲突次数设上限，不要无限循环',
-    ref: 'js/app.js uniquePathAsync',
+    issue: '备份要写进用户指定的目录，那个目录常在 SMB / NFS / 没插的移动硬盘上，' +
+           '一次同步 existsSync 几十到几百毫秒。挑名的过程里只要有一次同步探测，' +
+           '渲染线程就会卡住 —— 界面整块白掉，用户只能强制退出。' +
+           '而且冲突重试没有次数上限的话，目录里真堆了几百个同名备份就会一直转下去。',
+    contract: '全程异步（fs.copyFile 的回调里判冲突）；冲突次数设上限，不要无限循环',
+    ref: 'js/app.js copyIntoDirExclusiveAsync',
     run: async function () {
         const app = await Env.makeApp();
         const dir = H.tmpDir('eagle-vc-unique-');
         const spy = H.spy(fs, 'existsSync');
         try {
-            // 先占住前三个候选名，逼它真的走进循环
+            const src = path.join(dir, 'src.mp4');
+            fs.writeFileSync(src, 'original');
+            // 先占住前三个候选名，逼它真的走进重试
             fs.writeFileSync(path.join(dir, 'movie.mp4'), 'x');
             fs.writeFileSync(path.join(dir, 'movie-1.mp4'), 'x');
             fs.writeFileSync(path.join(dir, 'movie-2.mp4'), 'x');
 
-            const p = await app.win.App._internal.uniquePathAsync(dir, 'movie.mp4');
+            const p = await app.win.App._internal.copyIntoDirExclusiveAsync(src, dir, 'movie.mp4');
             assert.strictEqual(path.basename(p), 'movie-3.mp4',
                 '前三个名字都被占了，应该退到 movie-3.mp4，实际 ' + path.basename(p));
+            assert.strictEqual(fs.readFileSync(p, 'utf8'), 'original',
+                '改名重试之后，写进去的必须是本次的原件内容');
             assert.strictEqual(spy.count, 0,
-                'uniquePathAsync 做了 ' + spy.count + ' 次同步 existsSync，会卡住渲染线程');
+                '挑名过程做了 ' + spy.count + ' 次同步 existsSync，会卡住渲染线程');
 
             // 上限：真撞满了要抛错，而不是无限循环下去
-            await app.win.App._internal.uniquePathAsync(dir, 'movie.mp4', 1)
+            await app.win.App._internal.copyIntoDirExclusiveAsync(src, dir, 'movie.mp4', 1)
                 .then(function () {
                     throw new Error('冲突超过上限时应该抛错，而不是一直循环');
                 }, function (err) {
