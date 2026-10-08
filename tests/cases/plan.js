@@ -183,6 +183,58 @@ add({
     }
 });
 
+add({
+    id: 'NEW-11',
+    title: 'ffprobe 启动失败或未返回有效流信息时不得通过覆写前校验',
+    area: 'plan',
+    level: 'P0',
+    status: 'implemented',
+    issue: 'verifyOutput 的 error 事件把 ffprobe 启动失败当作成功；退出码为 0 但没有时长或视频流时也可能放行。',
+    contract: 'ffprobe 无法启动、输出无效 JSON、时长或视频流缺失、报告探测错误时都必须 reject，不得进入备份与替换。',
+    ref: 'js/ffmpeg.js verifyOutput',
+    run: async function () {
+        const Core = H.loadCore();
+        const dir = H.tmpDir('eagle-vc-verify-failure-');
+        try {
+            const out = path.join(dir, 'out.mp4');
+            fs.writeFileSync(out, 'nonempty fixture');
+            const source = { tracks: { video: 1, audio: 1, subtitle: 0 } };
+            await assert.rejects(
+                Core.verifyOutput({ ffprobe: path.join(dir, 'missing-ffprobe') }, out, 12, source),
+                /ffprobe|校验|解析|启动/,
+                '探测器不存在时不能用文件非空代替校验'
+            );
+
+            // 真正启动一个成功退出的进程，但分别输出无效、缺时长、缺流的结果。
+            const fakeProbe = path.join(dir, 'fake-ffprobe');
+            for (const output of [
+                'not-json',
+                JSON.stringify({ format: {}, streams: [{ codec_type: 'video' }, { codec_type: 'audio' }] }),
+                JSON.stringify({ format: { duration: '12' }, streams: [] })
+            ]) {
+                fs.writeFileSync(fakeProbe, '#!/bin/sh\nprintf %s ' + "'" + output.replace(/'/g, "'\\''") + "'" + '\n', { mode: 0o700 });
+                await assert.rejects(
+                    Core.verifyOutput({ ffprobe: fakeProbe }, out, 12, source),
+                    'ffprobe 返回不完整数据时不得放行：' + output
+                );
+            }
+            // ffprobe 即使退出码 0、元数据完整，-v error 仍可能报告截断/损坏。
+            const complete = JSON.stringify({ format: { duration: '12' }, streams: [
+                { codec_type: 'video' }, { codec_type: 'audio' }
+            ] });
+            fs.writeFileSync(fakeProbe, '#!/bin/sh\nprintf %s ' + "'" + complete + "'" +
+                '\nprintf "partial file\\n" >&2\n', { mode: 0o700 });
+            await assert.rejects(
+                Core.verifyOutput({ ffprobe: fakeProbe }, out, 12, source),
+                /探测报告错误/,
+                '探测器报告文件损坏时不能仅凭 0 退出码和完整字段放行'
+            );
+        } finally {
+            fs.rmSync(dir, { recursive: true, force: true });
+        }
+    }
+});
+
 // ---------------------------------------------------------------------------
 // P0 · 死代码
 // ---------------------------------------------------------------------------

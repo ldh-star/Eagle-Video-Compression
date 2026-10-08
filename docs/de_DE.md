@@ -7,7 +7,7 @@ Ein lokales Plugin für die Stapelkomprimierung von Videos in Eagle. Es lädt di
 
 - Die gesamte Verarbeitung erfolgt lokal. Es werden weder Videodateien hochgeladen noch Metadaten an einen Server gesendet.
 - Standardausgabe ist H.265/HEVC; H.264, AV1, VP9 und reines Remuxen stehen ebenfalls zur Verfügung.
-- Drei Komprimierungsmodi: Qualität zuerst (CRF), Zielbitrate und Zieldateigröße (H.264/H.265 mit Two-Pass-Kodierung).
+- Drei Komprimierungsmodi: Qualität zuerst (CRF), Zielbitrate und Zieldateigröße (Two-Pass nur bei H.264/H.265 per CPU-Softwarekodierung, nicht bei Hardwarekodierung).
 - Die Größenschätzung im CRF-Modus beruht auf echten Stichproben-Kodierungen. Angezeigt wird deshalb ein Bereich statt eines irreführenden exakten Werts.
 - Einstellbar sind Auflösung, Bildrate, Audio, Kodiergeschwindigkeit, Parallelität und der Umgang mit 10-Bit-Quellen.
 - HDR-Quellen werden erkannt, und die Farbmetadaten bleiben beim Neukodieren erhalten. Bereits komprimierte Dateien werden markiert, damit kein zweiter verlustbehafteter Durchgang aus Versehen passiert.
@@ -41,7 +41,7 @@ Das Plugin benötigt **sowohl** ein funktionierendes FFmpeg als auch ffprobe.
 | --- | --- | --- |
 | Qualität zuerst (CRF) | Allgemeine Nutzung, gleichbleibende Bildqualität | Die Endgröße hängt von der Komplexität der Quelle ab; angezeigt wird ein geschätzter Bereich aus Stichproben-Kodierungen |
 | Zielbitrate | Bekannte Zielbitrate | Wird aus Dauer, Videobitrate und Audioeinstellungen berechnet |
-| Zieldateigröße | Striktes Größenbudget | H.264/H.265 nähern sich per Two-Pass an; Container- und Audio-Overhead können eine kleine Abweichung verursachen |
+| Zieldateigröße | Annäherung an eine gewünschte Größe | Two-Pass nur bei H.264/H.265 per CPU-Softwarekodierung; Hardware und andere Codecs nutzen dieses Verfahren nicht. Bitratensteuerung, Audio und Container beeinflussen das Ergebnis; weder eine strikte Obergrenze noch eine feste Abweichung ist garantiert |
 
 **Hardwarebeschleunigung wählen**
 
@@ -50,7 +50,7 @@ Die Auswahl „Hardwarebeschleunigung“ bietet drei Optionen:
 | Option | Verhalten |
 | --- | --- |
 | Automatisch (… erkannt) | Nutzt die GPU, wenn ein brauchbarer Hardware-Encoder vorhanden ist, sonst die CPU. Dies ist die Voreinstellung; die erkannte Familie wird angezeigt |
-| GPU-Hardwarekodierung erzwingen | Ausschließlich Hardwarekodierung; schlägt fehl, wenn kein brauchbarer Hardware-Encoder vorhanden ist |
+| GPU-Hardwarekodierung erzwingen | Versucht Hardware zuerst; ohne passenden Encoder oder bei Fehlern wird auf CPU-Softwarekodierung zurückgegriffen. Der Modus ist nicht GPU-exklusiv |
 | Nur CPU-Softwarekodierung | Durchgehend Softwarekodierung, das am besten vorhersehbare Ergebnis |
 
 - Unter macOS kommt Apple VideoToolbox zum Einsatz; NVIDIA NVENC, Intel Quick Sync Video und AMD AMF setzen Windows mit passender GPU voraus. Hardwarekodierung soll Laufzeit und CPU-Last senken; wie stark, hängt von Quelle, Einstellungen und GPU ab. Die Qualität bei gleicher Bitrate kann von der Softwarekodierung abweichen — wenn Qualität an erster Stelle steht, wählen Sie „Nur CPU-Softwarekodierung“.
@@ -62,7 +62,7 @@ Die Auswahl „Hardwarebeschleunigung“ bietet drei Optionen:
 
 **Weitere Hinweise**
 
-- Während der Komprimierung können Sie jederzeit **Anhalten und abbrechen** wählen. Laufende FFmpeg-Prozesse werden beendet, noch nicht gestartete Aufgaben sofort als abgebrochen markiert, und die Originaldateien bleiben unberührt.
+- Während der Komprimierung können Sie **Anhalten und abbrechen** wählen. Laufende FFmpeg-Prozesse werden beendet und noch nicht gestartete Aufgaben abgebrochen. **Bereits abgeschlossene und ersetzte Dateien werden nicht wiederhergestellt**; das Abbrechen einer noch nicht übernommenen Aufgabe ersetzt ihr Original nicht.
 - Ändern Sie die Auswahl in Eagle und öffnen das Plugin erneut, fragt es nach: Vorgang abbrechen, aktuelle Warteschlange ersetzen oder anhängen. Laufende Arbeit wird nie stillschweigend verworfen.
 - Bei „Zur Aufgabenliste hinzufügen“ folgt eine zweite Rückfrage: Die hinzugefügten Dateien werden sofort komprimiert und ersetzen ihre Originale. Der Dialog listet die neuen Dateien auf und nennt den tatsächlichen Sicherungsstatus dieses Durchlaufs. Während der Komprimierung lassen sich die Sicherungseinstellungen nicht ändern.
 
@@ -84,6 +84,12 @@ Die Auswahl „Hardwarebeschleunigung“ bietet drei Optionen:
 
 <!-- section:changelog -->
 ## Versionsverlauf
+
+### 1.2.2
+
+- Behoben: Backup-Einstellungen bleiben während eines Durchlaufs gesperrt; die Bestätigung für hinzugefügte Dateien zeigt den tatsächlich verwendeten Backup-Status.
+- Behoben: Wenn ffprobe nicht startet oder die Ausgabe nicht vollständig geprüft werden kann, bleibt die Originaldatei erhalten.
+- Klargestellt: „GPU erzwingen“ kann auf CPU zurückfallen; Two-Pass im Zielgrößenmodus gilt nur für H.264/H.265 mit CPU-Softwarekodierung. Abbrechen stellt bereits ersetzte Dateien nicht wieder her.
 
 ### 1.2.1
 

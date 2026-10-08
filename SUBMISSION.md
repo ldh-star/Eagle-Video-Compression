@@ -1,7 +1,7 @@
 # 视频压缩 · 各语言提交文案
 
-> 由 `docs/<语系>.md` 自动生成，对应版本 **1.2.1**。
-> 每个语系三节：简述 / 使用说明 / 版本日志，可直接复制到 Eagle 插件中心对应语系的字段。
+> 由 `docs/<语系>.md` 自动生成，对应版本 **1.2.2**。
+> 每个语系包含商店名称、简短描述、简述、使用说明与版本日志，复制时请覆盖后台旧字段。
 > 只含投稿要求的 4 个语系；其余语系的 `docs/` 是插件界面语言的说明来源，不进提交表单。
 > 内容改动请改 `docs/` 下的源文件后重跑 `node tools/gen-submission.js`，不要直接改本文件。
 
@@ -9,13 +9,21 @@
 
 ## English（en）
 
+### 商店名称
+
+Video Compress
+
+### 简短描述（129 字符）
+
+Batch-compress Eagle videos or dropped local files with FFmpeg. Successful output replaces the original file; backup is optional.
+
 ### 简述
 
 A local batch video compression plugin for Eagle. It picks up the videos you have selected — or local files you drop into the window — re-encodes them with FFmpeg, and replaces the file at its original path once compression succeeds.
 
 - Everything runs locally. Video files are never uploaded and no video metadata is sent to any server.
 - H.265/HEVC by default, with H.264, AV1, VP9, and remux-only options.
-- Three compression modes: quality first (CRF), target bitrate, and target file size (two-pass for H.264/H.265).
+- Three compression modes: quality first (CRF), target bitrate, and target file size (two-pass for H.264/H.265 CPU software encoding, not hardware encoding).
 - CRF size estimates come from real stratified sample encodes, so the UI shows a range instead of a misleading exact number.
 - Controls for resolution, frame rate, audio, encoding speed, concurrency, and 10-bit source handling.
 - HDR sources are detected and their colour metadata is carried through re-encoding; already-compressed files are marked so you do not run a second lossy pass by accident.
@@ -48,7 +56,7 @@ This plugin needs a working FFmpeg **and** ffprobe. Both are required:
 | --- | --- | --- |
 | Quality first (CRF) | General use, consistent visual quality | Final size depends on source complexity; the UI shows an estimated range from sample encodes |
 | Target bitrate | A known delivery bitrate | Calculated from duration, video bitrate, and audio settings |
-| Target file size | A strict size budget | H.264/H.265 use two-pass encoding; container and audio overhead can still cause a small difference |
+| Target file size | A desired approximate size | H.264/H.265 CPU software encoding uses two passes; hardware and other codecs do not use that two-pass flow. Rate control, audio and container overhead affect the result; no strict size cap or fixed error margin is guaranteed |
 
 **Choosing hardware acceleration**
 
@@ -57,7 +65,7 @@ The **Hardware acceleration** dropdown has three options:
 | Option | Behaviour |
 | --- | --- |
 | Auto (detected …) | Uses the GPU when a usable hardware encoder is found, otherwise falls back to the CPU. This is the default, and the dropdown reports which family it detected |
-| Force GPU hardware encoding | Hardware encoding only; fails if this machine has no usable hardware encoder |
+| Force GPU hardware encoding | Tries hardware first; falls back to CPU software encoding if no suitable encoder is available or the hardware encode fails. It is not GPU-only |
 | CPU software encoding only | Software encoding throughout, the most predictable result |
 
 - Apple VideoToolbox is used on macOS; NVIDIA NVENC, Intel Quick Sync Video and AMD AMF require Windows with a matching GPU. Hardware encoding is there to cut wall-clock time and CPU load, and how much it helps depends on the source, the settings and the GPU. Quality at a given bitrate can differ from software encoding, so pick **CPU software encoding only** when quality matters most.
@@ -69,7 +77,7 @@ The **Hardware acceleration** dropdown has three options:
 
 **Other notes**
 
-- You can click **Stop and cancel** at any time. Running FFmpeg processes are terminated, tasks that have not started are marked cancelled immediately, and originals are left untouched.
+- You can click **Stop and cancel** during a run. Running FFmpeg processes are terminated and tasks that have not started are cancelled. **Files already completed and replaced are not restored**; cancelling an uncommitted task does not replace its original.
 - If you change the Eagle selection and reopen the plugin mid-run, it asks whether to cancel the action, replace the current queue, or append to it. Work in progress is never discarded silently.
 - Choosing **Add to task queue** asks for one more confirmation: appended items start compressing immediately and overwrite their originals, so the dialog lists exactly which files are being added and whether backup is actually on for this run. Backup settings cannot be changed while compression is running.
 
@@ -90,6 +98,12 @@ The **Hardware acceleration** dropdown has three options:
 - Temporary files created while compressing are written next to the source file and cleaned up when the run ends or at the next start, so they do not accumulate.
 
 ### 版本日志
+
+#### 1.2.2
+
+- Fixed: backup settings are locked during a run, and appended items' confirmation displays the backup state actually used by that run.
+- Fixed: a failed ffprobe launch or incomplete output check now blocks replacement and preserves the original file.
+- Clarified: Force GPU can fall back to CPU; target-size two-pass encoding is for H.264/H.265 CPU software encoding only; cancelling does not restore files already replaced.
 
 #### 1.2.1
 
@@ -162,13 +176,21 @@ The **Hardware acceleration** dropdown has three options:
 
 ## 日本語（ja_JP）
 
+### 商店名称
+
+動画圧縮
+
+### 简短描述（79 字符）
+
+Eagle で選んだ動画やドラッグしたローカルファイルを FFmpeg で一括圧縮します。圧縮結果は元ファイルを置き換えます。圧縮前のバックアップも選べます。
+
 ### 简述
 
 Eagle 内で動画を一括圧縮するローカルトランスコードプラグインです。起動時に選択中の動画を自動で読み込み（ウィンドウにローカルファイルをドラッグすることもできます）、FFmpeg で再エンコードし、成功すると元のパスにあるファイルを置き換えます。
 
 - すべての処理はローカルで完結します。動画ファイルはアップロードされず、メタデータも外部に送信されません。
 - 既定の出力は H.265/HEVC。H.264、AV1、VP9、再多重化のみにも対応します。
-- 圧縮方式は 3 種類：画質優先（CRF）、ビットレート指定、目標ファイルサイズ（H.264/H.265 は 2 パスエンコード）。
+- 圧縮方式は 3 種類：画質優先（CRF）、ビットレート指定、目標ファイルサイズ（H.264/H.265 の CPU ソフトウェアエンコード時のみ 2 パス。ハードウェアエンコード時は対象外）。
 - CRF モードのサイズ推定は実際のサンプルエンコードに基づくため、誤解を招く単一の数値ではなく範囲で表示します。
 - 解像度、フレームレート、音声、エンコード速度、並列数、10bit ソースの扱いを調整できます。
 - HDR ソースを自動判別し、再エンコード時に色情報を保持します。圧縮済みファイルにはマーカーを書き込み、二重の劣化を防ぎます。
@@ -201,7 +223,7 @@ Eagle 内で動画を一括圧縮するローカルトランスコードプラ�
 | --- | --- | --- |
 | 画質優先（CRF） | 通常利用、安定した画質 | 最終サイズはソースの複雑さ次第。サンプルエンコードによる推定範囲を表示します |
 | ビットレート指定 | 目標ビットレートが決まっている場合 | 長さ・映像ビットレート・音声設定から算出します |
-| 目標ファイルサイズ | サイズ上限が厳密な場合 | H.264/H.265 は 2 パスで目標に近づけます。コンテナと音声のオーバーヘッドでわずかな差が出ます |
+| 目標ファイルサイズ | 指定サイズに近づけたい場合 | H.264/H.265 の CPU ソフトウェアエンコード時のみ 2 パスです。ハードウェアや他のコーデックではこの方式を使いません。ビットレート制御、音声、コンテナの影響があり、厳密な上限や一定の誤差は保証されません |
 
 **ハードウェアアクセラレーションの選び方**
 
@@ -210,7 +232,7 @@ Eagle 内で動画を一括圧縮するローカルトランスコードプラ�
 | 選択肢 | 動作 |
 | --- | --- |
 | 自動（… を検出） | 利用可能なハードウェアエンコーダーがあれば GPU を使い、なければ CPU にフォールバックします。既定値で、検出した種別を表示します |
-| GPU ハードウェアエンコードを強制 | ハードウェアエンコードのみ。利用可能なエンコーダーがない場合は失敗します |
+| GPU ハードウェアエンコードを強制 | ハードウェアを優先して試しますが、適切なエンコーダーがない場合やエンコードに失敗した場合は CPU ソフトウェアエンコードに切り替わります。GPU 専用ではありません |
 | CPU ソフトウェアエンコードのみ | 終始ソフトウェアエンコード。結果が最も予測しやすい選択です |
 
 - macOS では Apple VideoToolbox を使用します。NVIDIA NVENC、Intel Quick Sync Video、AMD AMF は Windows と対応する GPU が必要です。ハードウェアエンコードは所要時間と CPU 負荷を下げるためのもので、効果は素材・設定・GPU によって変わります。同一ビットレートでの画質はソフトウェアエンコードと異なる場合があるため、画質を最優先する場合は「CPU ソフトウェアエンコードのみ」を選んでください。
@@ -222,7 +244,7 @@ Eagle 内で動画を一括圧縮するローカルトランスコードプラ�
 
 **その他**
 
-- 圧縮中はいつでも「停止してキャンセル」できます。実行中の FFmpeg は終了され、未開始のタスクは即座にキャンセル扱いになり、元ファイルは影響を受けません。
+- 圧縮中は「停止してキャンセル」できます。実行中の FFmpeg は終了され、未開始のタスクはキャンセル扱いになります。**すでに完了して置き換えられたファイルは元に戻りません**。まだ反映されていないタスクの元ファイルは、キャンセルによって置き換えられません。
 - 圧縮中に Eagle 側で選択を変更してプラグインを開き直すと、「今回の操作を取り消す」「現在のキューを置き換える」「キューに追加する」のいずれかを尋ねます。進行中の作業を黙って破棄することはありません。
 - 「タスクキューに追加」を選ぶともう一度確認します。追加した素材はすぐに圧縮が始まり元ファイルを置き換えるため、確認ダイアログに追加ファイルの一覧と今回の実際のバックアップ状態を表示します。圧縮中はバックアップ設定を変更できません。
 
@@ -243,6 +265,12 @@ Eagle 内で動画を一括圧縮するローカルトランスコードプラ�
 - 圧縮中の一時ファイルは元ファイルの隣に作られ、処理の終了時または次回起動時に自動で削除されるため、容量を占有し続けることはありません。
 
 ### 版本日志
+
+#### 1.2.2
+
+- 修正：実行中はバックアップ設定を固定し、追加する素材の確認画面にこの実行で使用するバックアップ状態を表示します。
+- 修正：ffprobe の起動失敗や出力の検証が不完全な場合、元ファイルを置き換えずに保持します。
+- 説明を修正：GPU 強制でも CPU にフォールバックします。目標サイズの 2 パス処理は H.264/H.265 の CPU ソフトウェアエンコードのみで、キャンセルしても置換済みのファイルは復元されません。
 
 #### 1.2.1
 
@@ -315,13 +343,21 @@ Eagle 内で動画を一括圧縮するローカルトランスコードプラ�
 
 ## 简体中文（zh_CN）
 
+### 商店名称
+
+视频压缩
+
+### 简短描述（57 字符）
+
+使用 FFmpeg 批量压缩 Eagle 中选中的视频或拖入的本机文件。压缩结果会替换原文件，可选择在压缩前备份。
+
 ### 简述
 
 在 Eagle 中批量压缩视频的本地转码插件。打开插件后会自动读取当前选中的视频，也可以直接把本机视频文件拖进窗口，用 FFmpeg 重新编码，成功后替换原路径上的文件。
 
 - 所有处理都在本机完成，不上传视频文件，也不把视频元数据发往任何服务器。
 - 默认输出 H.265/HEVC，同时支持 H.264、AV1、VP9 与仅重封装。
-- 三种压缩方式：画质优先（CRF）、指定码率、目标文件大小（H.264/H.265 走两遍编码）。
+- 三种压缩方式：画质优先（CRF）、指定码率、目标文件大小（H.264/H.265 使用 CPU 软件编码时走两遍编码；硬件编码不走这套两遍流程）。
 - CRF 模式的体积预估基于真实的分段抽样试压，界面给出的是区间而不是一个会骗人的精确值。
 - 可调分辨率、帧率、音轨、编码速度、并发数与 10bit 素材的处理方式。
 - 自动识别 HDR 素材并在重编码时保留色彩元数据；对已经压过的文件会打标记，避免重复有损压缩。
@@ -354,7 +390,7 @@ Eagle 内で動画を一括圧縮するローカルトランスコードプラ�
 | --- | --- | --- |
 | 画质优先（CRF） | 日常使用、追求稳定画质 | 最终体积取决于素材复杂度，界面显示抽样得出的预估区间 |
 | 指定码率 | 已知目标码率 | 按时长、视频码率和音频设置直接算出 |
-| 目标文件大小 | 有严格体积上限 | H.264/H.265 用两遍编码逼近目标，容器和音频开销会带来少量偏差 |
+| 目标文件大小 | 希望接近指定体积 | H.264/H.265 的 CPU 软件编码走两遍；硬件及其他编码器不走这套两遍流程。实际体积受码率控制、音频和容器开销影响，不保证严格上限或固定偏差 |
 
 **硬件加速怎么选**
 
@@ -363,7 +399,7 @@ Eagle 内で動画を一括圧縮するローカルトランスコードプラ�
 | 选项 | 行为 |
 | --- | --- |
 | 自动（检测到 …） | 检测到可用硬件编码器时走 GPU，否则回退 CPU。默认选项，界面会回填检测到的硬件家族 |
-| 强制 GPU 硬件编码 | 只走硬件编码；本机没有可用硬件编码器时会失败 |
+| 强制 GPU 硬件编码 | 优先尝试硬件编码；没有适用编码器或硬件编码失败时会回退 CPU 软件编码，并非只走 GPU |
 | 仅 CPU 软件编码 | 完全走软件编码，结果最可预期 |
 
 - macOS 上使用 Apple VideoToolbox；NVIDIA NVENC、Intel Quick Sync Video 与 AMD AMF 需要 Windows 加上对应品牌的显卡。硬件编码主要用于缩短耗时、降低 CPU 占用，实际幅度取决于素材、参数与显卡型号；同码率下的画质与软件编码可能有差异，对画质要求严格时建议选「仅 CPU 软件编码」。
@@ -375,7 +411,7 @@ Eagle 内で動画を一括圧縮するローカルトランスコードプラ�
 
 **其他说明**
 
-- 压缩过程中可以随时点「停止并取消」，正在跑的 FFmpeg 会被终止，尚未开始的任务立即标记为已取消，原文件不受影响。
+- 压缩过程中可以点「停止并取消」，正在跑的 FFmpeg 会被终止，尚未开始的任务标记为已取消；**此前已完成并替换的原文件不会回滚**。未完成提交的任务不会因取消而替换原件。
 - 压缩期间在 Eagle 里重新选中素材再打开插件，会询问：取消本次操作、清空当前队列换成新选中的、或者追加到队列。不会静默丢弃正在进行的工作。
 - 选「加入任务队列」时会再确认一次：追加进来的素材会立即开始压缩并覆盖原文件，确认框会列出新增文件清单和本次的实际备份状态。压缩进行中无法更改备份设置。
 
@@ -396,6 +432,12 @@ Eagle 内で動画を一括圧縮するローカルトランスコードプラ�
 - 压缩过程中的临时文件写在源文件旁边，任务结束或下次启动时自动清理，不会长期占用空间。
 
 ### 版本日志
+
+#### 1.2.2
+
+- 修复：运行中锁定备份设置，追加素材的确认框显示本轮实际使用的备份状态。
+- 修复：ffprobe 无法启动或校验信息不完整时不再替换原文件；原件保持不变。
+- 澄清：强制 GPU 也会回退 CPU；仅 H.264/H.265 的 CPU 软件编码使用目标大小两遍流程，取消不会恢复已替换的文件。
 
 #### 1.2.1
 
@@ -468,13 +510,21 @@ Eagle 内で動画を一括圧縮するローカルトランスコードプラ�
 
 ## 繁體中文（zh_TW）
 
+### 商店名称
+
+影片壓縮
+
+### 简短描述（56 字符）
+
+使用 FFmpeg 批次壓縮 Eagle 中選取的影片或拖入的本機檔案。壓縮結果會取代原檔，可選擇在壓縮前備份。
+
 ### 简述
 
 在 Eagle 中批次壓縮影片的本機轉檔外掛。開啟後會自動讀取目前選取的影片，也可以直接把本機影片檔案拖進視窗，以 FFmpeg 重新編碼，成功後取代原路徑上的檔案。
 
 - 所有處理都在本機完成，不會上傳影片檔案，也不會把影片中繼資料送往任何伺服器。
 - 預設輸出 H.265/HEVC，同時支援 H.264、AV1、VP9 與僅重新封裝。
-- 三種壓縮方式：畫質優先（CRF）、指定位元率、目標檔案大小（H.264/H.265 採兩階段編碼）。
+- 三種壓縮方式：畫質優先（CRF）、指定位元率、目標檔案大小（H.264/H.265 使用 CPU 軟體編碼時採兩階段編碼；硬體編碼不走此流程）。
 - CRF 模式的體積預估以實際的分段取樣試壓為準，介面顯示的是區間而非會誤導人的精確值。
 - 可調整解析度、影格率、音軌、編碼速度、並行數以及 10bit 素材的處理方式。
 - 自動辨識 HDR 素材並在重新編碼時保留色彩中繼資料；對已壓縮過的檔案會寫入標記，避免重複有損壓縮。
@@ -507,7 +557,7 @@ Eagle 内で動画を一括圧縮するローカルトランスコードプラ�
 | --- | --- | --- |
 | 畫質優先（CRF） | 日常使用、追求穩定畫質 | 最終體積取決於素材複雜度，介面顯示取樣得出的預估區間 |
 | 指定位元率 | 已知目標位元率 | 依時長、影片位元率與音訊設定直接計算 |
-| 目標檔案大小 | 有嚴格體積上限 | H.264/H.265 採兩階段編碼逼近目標，容器與音訊額外開銷會造成少量偏差 |
+| 目標檔案大小 | 希望接近指定體積 | H.264/H.265 的 CPU 軟體編碼採兩階段；硬體及其他編碼器不走此流程。實際體積受位元率控制、音訊及容器開銷影響，不保證嚴格上限或固定偏差 |
 
 **硬體加速怎麼選**
 
@@ -516,7 +566,7 @@ Eagle 内で動画を一括圧縮するローカルトランスコードプラ�
 | 選項 | 行為 |
 | --- | --- |
 | 自動（偵測到 …） | 偵測到可用硬體編碼器時走 GPU，否則回退 CPU。預設選項，介面會回填偵測到的硬體家族 |
-| 強制 GPU 硬體編碼 | 只走硬體編碼；本機沒有可用硬體編碼器時會失敗 |
+| 強制 GPU 硬體編碼 | 優先嘗試硬體編碼；沒有適用編碼器或硬體編碼失敗時會回退 CPU 軟體編碼，並非只走 GPU |
 | 僅 CPU 軟體編碼 | 完全走軟體編碼，結果最可預期 |
 
 - macOS 上使用 Apple VideoToolbox；NVIDIA NVENC、Intel Quick Sync Video 與 AMD AMF 需要 Windows 加上對應品牌的顯示卡。硬體編碼主要用於縮短耗時、降低 CPU 佔用，實際幅度取決於素材、參數與顯示卡型號；同位元率下的畫質與軟體編碼可能有差異，對畫質要求嚴格時建議選「僅 CPU 軟體編碼」。
@@ -528,7 +578,7 @@ Eagle 内で動画を一括圧縮するローカルトランスコードプラ�
 
 **其他說明**
 
-- 壓縮過程中可隨時點「停止並取消」，執行中的 FFmpeg 會被終止，尚未開始的工作立即標記為已取消，原檔不受影響。
+- 壓縮過程中可點「停止並取消」，執行中的 FFmpeg 會被終止，尚未開始的工作標記為已取消；**先前已完成並取代的原檔不會還原**。未完成提交的工作不會因取消而取代原檔。
 - 壓縮期間在 Eagle 中重新選取素材再開啟外掛，會詢問：取消這次操作、清空目前佇列改用新選取的、或是追加到佇列。不會靜默丟棄進行中的工作。
 - 選「加入任務佇列」時會再確認一次：追加進來的素材會立即開始壓縮並覆寫原檔，確認視窗會列出新增檔案清單與這次的實際備份狀態。壓縮進行中無法變更備份設定。
 
@@ -549,6 +599,12 @@ Eagle 内で動画を一括圧縮するローカルトランスコードプラ�
 - 壓縮過程中的暫存檔寫在來源檔案旁邊，工作結束或下次啟動時自動清理，不會長期佔用空間。
 
 ### 版本日志
+
+#### 1.2.2
+
+- 修正：執行期間鎖定備份設定，追加素材的確認視窗顯示本輪實際使用的備份狀態。
+- 修正：ffprobe 無法啟動或驗證資訊不完整時不再取代原檔；原檔保持不變。
+- 釐清：強制 GPU 也會回退 CPU；只有 H.264/H.265 的 CPU 軟體編碼採用目標大小兩階段流程，取消不會還原已取代的檔案。
 
 #### 1.2.1
 

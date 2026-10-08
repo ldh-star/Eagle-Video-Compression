@@ -2208,32 +2208,45 @@
                 if (stat.size <= 0) return reject(new Error('输出文件为空，编码失败'));
 
                 var args = ['-v', 'error', '-print_format', 'json', '-show_format', '-show_streams', outputPath];
-                var p = cp.spawn(binaries.ffprobe, args);
+                var p;
+                try { p = cp.spawn(binaries.ffprobe, args); }
+                catch (spawnErr) { return reject(new Error('ffprobe 启动失败，已放弃替换原文件：' + spawnErr.message)); }
                 var out = '', errText = '';
                 p.stdout.on('data', function (d) { out += d.toString(); });
                 p.stderr.on('data', function (d) { errText += d.toString(); });
-                p.on('error', function () {
-                    resolve({ size: stat.size, duration: 0 });
+                p.on('error', function (spawnErr) {
+                    // 校验程序不可用 ≠ 产物可用。这里一旦 resolve，原文件就可能被覆写。
+                    reject(new Error('ffprobe 启动失败，已放弃替换原文件：' + spawnErr.message));
                 });
                 p.on('close', function (code) {
-                    if (code !== 0) {
-                        return reject(new Error('输出文件无法解析，已放弃替换原文件：' + errText.trim()));
+                    if (code !== 0 || errText.trim()) {
+                        // -v error 下的 stderr 表示探测器报告了解码/容器错误；有些
+                        // 截断 MP4 仍以 0 退出并返回时长与轨道，不能只看退出码。
+                        return reject(new Error('输出文件探测报告错误，已放弃替换原文件：' + errText.trim()));
                     }
                     var parsed = null;
                     try { parsed = JSON.parse(out); } catch (e) {}
-                    var dur = 0;
-                    try {
-                        dur = parseFloat(parsed.format.duration) || 0;
-                    } catch (e) {}
+                    // 成功退出不代表读到了有效视频（可能是空 JSON、没有时长或流）。
+                    // 所有校验项完成前都不能进入备份/替换阶段。
+                    if (!parsed || !parsed.format || !Array.isArray(parsed.streams)) {
+                        return reject(new Error('ffprobe 未返回有效视频信息，已放弃替换原文件'));
+                    }
+                    var dur = Number(parsed.format.duration);
+                    if (!isFinite(dur) || dur <= 0) {
+                        return reject(new Error('输出时长无法验证，已放弃替换原文件'));
+                    }
+                    var outTracks = countStreams(parsed);
+                    if (outTracks.video < 1) {
+                        return reject(new Error('输出文件没有有效视频流，已放弃替换原文件'));
+                    }
                     // 时长偏差超过 2 秒或 2% 视为异常
-                    if (sourceDuration > 0 && dur > 0) {
+                    if (sourceDuration > 0) {
                         var diff = Math.abs(dur - sourceDuration);
                         if (diff > 2 && diff / sourceDuration > 0.02) {
                             return reject(new Error('输出时长与原片差异过大（' +
                                 dur.toFixed(1) + 's vs ' + sourceDuration.toFixed(1) + 's），已放弃替换原文件'));
                         }
                     }
-                    var outTracks = countStreams(parsed);
                     var missing = missingTracks(sourceMeta, outTracks, opts);
                     if (missing.length) {
                         return reject(new Error('产物比原片少了轨道（' + missing.join('、') +

@@ -663,4 +663,175 @@ add({
     }
 });
 
+add({
+    id: 'NEW-10',
+    title: '运行中追加提示必须采用本轮设置且备份设置不得漂移',
+    area: 'ui',
+    level: 'P0',
+    status: 'implemented',
+    issue: '备份勾选框运行中仍可切换；追加确认读取界面并修改 state.settings，而 worker 沿用启动时的备份配置。',
+    contract: '开始运行后锁住备份控件；追加确认展示 worker 正在使用的备份设置；迟到的目录选择不能修改运行设置。',
+    ref: 'js/app.js doStart / appendSelectionToQueue / pickBackupDir',
+    run: async function () {
+        let releaseEncoding;
+        const app = await Env.makeApp({ core: {
+            resolveEncoder: function () { return { kind: 'cpu', encoder: 'libx265' }; },
+            isHardwareEncoder: function () { return false; },
+            validatePlan: function () { return { ok: true }; },
+            buildPlan: function () { return { encoder: { kind: 'cpu', encoder: 'libx265' } }; },
+            executePlan: function () { return new Promise(function (resolve, reject) { releaseEncoding = reject; }); }
+        } });
+        try {
+            const win = app.win;
+            const st = win.App._state;
+            const chk = win.document.getElementById('chkBackup');
+            st.settings.backupDir = '/tmp/previous-backup';
+            chk.disabled = false; // 模拟启动前已经选好了目录、备份开关可操作
+            chk.checked = false;
+            st.settings.backup = false;
+            st.tasks.push(taskWith('source', 'queued'));
+            win.App._internal.renderSummary();
+
+            // 用户在开始之前打开系统目录选择器，回调要等到运行以后才返回。
+            let resolveDialog;
+            win.eagle.dialog = { showOpenDialog: function () {
+                return new Promise(function (resolve) { resolveDialog = resolve; });
+            } };
+            win.document.getElementById('btnPickBackup').click();
+            win.document.getElementById('btnStart').click();
+            assert.strictEqual(win.document.getElementById('confirmMask').hidden, false, '应先显示首次确认');
+            win.document.getElementById('btnConfirmOk').click();
+            assert.strictEqual(st.running, true, '前置条件：真实 worker 已启动');
+            assert.strictEqual(chk.disabled, true, '运行中必须锁住备份开关');
+            assert.strictEqual(st.runSession.settings.backup, false, '运行会话必须保存 worker 的备份设置');
+
+            resolveDialog({ filePaths: ['/tmp/late-backup'] });
+            await Env.wait(0);
+            assert.strictEqual(st.settings.backupDir, '/tmp/previous-backup', '迟到的目录选择不得改写运行时备份目录');
+            assert.strictEqual(chk.checked, false, '迟到的目录选择不得暗中打开备份');
+
+            // 即使代码或外部事件改了 UI，也不能让确认文本重读并污染 worker 设置。
+            chk.checked = true;
+            chk.dispatchEvent(new win.Event('change'));
+            app.selected.push(Env.eagleItem('/tmp/live-added.mp4'));
+            win.App.onShow();
+            await Env.wait(10);
+            win.document.getElementById('btnSelectionAppend').click();
+            const warning = win.document.getElementById('appendConfirmWarn').textContent;
+            assert(warning.includes('本次未开启备份'), '追加确认必须如实显示本轮实际未备份：' + warning);
+            assert(!warning.includes('本次已开启备份'), '追加确认不得报告 UI 的临时状态');
+            assert.strictEqual(st.runSession.settings.backup, false, '确认期间 worker 的备份快照不得改变');
+        } finally {
+            if (releaseEncoding) releaseEncoding(Object.assign(new Error('cancelled'), { cancelled: true }));
+            if (app.win.App._state.runPromise) await app.win.App._state.runPromise.catch(function () {});
+            app.close();
+        }
+    }
+});
+
+add({
+    id: 'NEW-12',
+    title: 'ffprobe 启动失败后真实原文件保持不变',
+    area: 'ui',
+    level: 'P0',
+    status: 'implemented',
+    issue: '仅测 verifyOutput 拒绝不足以证明运行编排不会在失败后继续覆写原路径。',
+    contract: '编码产物存在但 ffprobe 不可启动时，整轮任务报错，原文件字节不变且不生成备份。',
+    ref: 'js/app.js runTask → js/ffmpeg.js verifyOutput',
+    run: async function () {
+        const dir = H.tmpDir('eagle-vc-guard-');
+        const original = path.join(dir, 'source.mp4');
+        const backupDir = path.join(dir, 'backups');
+        fs.mkdirSync(backupDir);
+        const sourceBytes = Buffer.alloc(4096, 0x61);
+        fs.writeFileSync(original, sourceBytes);
+        const app = await Env.makeApp({ core: {
+            resolveEncoder: function () { return { kind: 'cpu', encoder: 'libx265' }; },
+            isHardwareEncoder: function () { return false; },
+            validatePlan: function () { return { ok: true }; },
+            buildPlan: function (meta, settings, outputPath) {
+                return { encoder: { kind: 'cpu', encoder: 'libx265' }, outputPath: outputPath };
+            },
+            executePlan: function (bins, plan) {
+                fs.writeFileSync(plan.outputPath, Buffer.alloc(128, 0x62));
+                return Promise.resolve();
+            },
+            verifyOutput: H.loadCore().verifyOutput
+        } });
+        try {
+            const win = app.win;
+            const st = win.App._state;
+            st.bins.ffprobe = path.join(dir, 'missing-ffprobe');
+            st.settings.backupDir = backupDir;
+            st.settings.backup = true;
+            const backupCheckbox = win.document.getElementById('chkBackup');
+            backupCheckbox.checked = true;
+            const task = makeTask('probe-guard');
+            task.path = original;
+            task.name = path.basename(original);
+            task.meta = Env.probeMeta(original);
+            task.meta.size = sourceBytes.length;
+            st.tasks.push(task);
+            win.App._internal.renderSummary();
+            win.document.getElementById('btnStart').click();
+            assert.strictEqual(win.document.getElementById('confirmMask').hidden, false);
+            win.document.getElementById('btnConfirmOk').click();
+            await st.runPromise;
+            assert.strictEqual(task.status, 'error', '校验失败必须让任务报错');
+            assert(/ffprobe/.test(task.error), '错误应指向 ffprobe 启动失败');
+            assert(fs.readFileSync(original).equals(sourceBytes), 'ffprobe 失败时不能替换原文件');
+            assert.strictEqual(fs.readdirSync(backupDir).length, 0,
+                '已开启备份时，校验失败也不应进入备份阶段');
+        } finally {
+            app.close();
+            fs.rmSync(dir, { recursive: true, force: true });
+        }
+    }
+});
+
+add({
+    id: 'NEW-13',
+    title: '运行前打开的本地文件选择器迟到时不得加入活队列',
+    area: 'ui',
+    level: 'P0',
+    status: 'implemented',
+    issue: '添加本地文件的对话框可能在启动压缩之后才返回，绕过运行中追加确认。',
+    contract: '迟到的本地文件选择结果不得直接加入正在运行的 worker 队列。',
+    ref: 'js/app.js addLocalFiles',
+    run: async function () {
+        let releaseEncoding;
+        const app = await Env.makeApp({ core: {
+            resolveEncoder: function () { return { kind: 'cpu', encoder: 'libx265' }; },
+            isHardwareEncoder: function () { return false; },
+            validatePlan: function () { return { ok: true }; },
+            buildPlan: function () { return { encoder: { kind: 'cpu', encoder: 'libx265' } }; },
+            executePlan: function () { return new Promise(function (resolve, reject) { releaseEncoding = reject; }); }
+        } });
+        try {
+            const win = app.win;
+            const st = win.App._state;
+            let resolveDialog;
+            win.eagle.dialog = { showOpenDialog: function () {
+                return new Promise(function (resolve) { resolveDialog = resolve; });
+            } };
+            win.document.getElementById('btnAddFiles').click();
+            st.tasks.push(makeTask('initial'));
+            win.App._internal.renderSummary();
+            win.document.getElementById('btnStart').click();
+            win.document.getElementById('btnConfirmOk').click();
+            assert.strictEqual(st.running, true, '前置条件：worker 正在运行');
+            resolveDialog({ filePaths: ['/tmp/late-unconfirmed.mp4'] });
+            await Env.wait(10);
+            assert(!st.tasks.some(function (t) { return t.path === '/tmp/late-unconfirmed.mp4'; }),
+                '迟到的本地文件没有追加确认，不得入队');
+            assert(!st.runSession.queue.some(function (t) { return t.path === '/tmp/late-unconfirmed.mp4'; }),
+                '未经确认的本地文件不得进入正在运行的 worker 队列');
+        } finally {
+            if (releaseEncoding) releaseEncoding(Object.assign(new Error('cancelled'), { cancelled: true }));
+            if (app.win.App._state.runPromise) await app.win.App._state.runPromise.catch(function () {});
+            app.close();
+        }
+    }
+});
+
 module.exports = cases;

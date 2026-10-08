@@ -125,7 +125,8 @@ function wait(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
     replacement.status = 'queued';
     win.App._state.running = true;
     win.App._state.cancelToken = { cancelled: false };
-    win.App._state.runSession = { queue: [replacement], pendingProbes: 0, waiters: [] };
+    win.App._state.runSession = { queue: [replacement], pendingProbes: 0, waiters: [],
+        settings: { backup: false, backupDir: '' } };
     win.App._state.runPromise = Promise.resolve();
 
     // 运行中追加 = 立即编码 + 覆盖原文件，必须先过一道独立确认。

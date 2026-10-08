@@ -546,7 +546,9 @@
         s.crf = parseInt(dom.rngCrf.value, 10);
         s.videoBitrate = parseInt(dom.inpBitrate.value, 10) || 2000;
         s.targetSizeMB = parseFloat(dom.inpTargetSize.value) || 50;
-        s.backup = dom.chkBackup.checked;
+        // 本轮 worker 已持有启动快照；其他控件的 change 事件可能再次读设置，
+        // 但不能让运行期间的备份勾选状态污染下次运行或追加确认。
+        if (!state.running) s.backup = dom.chkBackup.checked;
         s.replaceInEagle = dom.chkReplaceInEagle.checked;
         s.writeCompressionMarker = dom.chkWriteMarker.checked;
         s.tagCompressed = dom.chkTagCompressed.checked;
@@ -825,8 +827,8 @@
     function refreshBackupUI() {
         var hasDir = !!state.settings.backupDir;
 
-        dom.chkBackup.disabled = !hasDir;
-        dom.backupCheck.classList.toggle('disabled', !hasDir);
+        dom.chkBackup.disabled = state.running || !hasDir;
+        dom.backupCheck.classList.toggle('disabled', state.running || !hasDir);
 
         if (!hasDir) {
             // 没有目录就绝不允许勾上，避免「勾了但没生效」这种最难发现的状态
@@ -1605,6 +1607,7 @@
         // 选备份目录的按钮不受备份勾选框限制 —— 顺序是先选目录、后启用勾选，
         // 反过来就成了「想开备份先得勾上，但勾上了才能选目录」的死锁。
         dom.btnPickBackup.disabled = state.running;
+        refreshBackupUI();
         if (dom.btnTheme) dom.btnTheme.disabled = false;
         if (dom.btnResetSettings) dom.btnResetSettings.disabled = state.running;
     }
@@ -1788,14 +1791,18 @@
         var tasks = pendingTasks();
         if (!tasks.length) return;
 
+        // UI 设置对象会被 saveSettings 原地修改；确认之后固定快照，
+        // 才能保证弹窗承诺与实际 worker 配置一致。
+        var settingsSnapshot = {};
+        Object.keys(settings).forEach(function (key) { settingsSnapshot[key] = settings[key]; });
         confirmedBatch = {
-            settings: settings,
+            settings: settingsSnapshot,
             entries: tasks.map(function (t) {
                 return { id: t.id, path: t.path, name: t.name };
             })
         };
 
-        showConfirm(tasks, settings);
+        showConfirm(tasks, settingsSnapshot);
     }
 
     /**
@@ -1946,6 +1953,8 @@
         var session = state.runSession = {
             queue: tasks.slice(),
             pendingProbes: 0,
+            // 追加确认读取与 worker 同一份快照，绝不能从运行中的 UI 再取设置。
+            settings: runtimeSettings,
             // 本轮成功打上标签的素材数，收尾时并进状态栏。
             tagged: 0,
             waiters: []
@@ -2577,8 +2586,11 @@
 
         // 运行中入队 = 立即编码 + 覆盖原文件。必须单独确认，不能沿用上一批的确认结果。
         if (state.running) {
+            // 会话与 worker 共享同一份运行设置；拿不到会话时宁可不追加，
+            // 也不能向用户展示一套设置、用另一套设置覆盖原文件。
+            if (!state.runSession || !state.runSession.settings) return;
             pendingAppend = items;
-            showAppendConfirm(items, readSettingsFromUI());
+            showAppendConfirm(items, state.runSession.settings);
             return;
         }
         addEagleItems(items, 'append');
@@ -2662,13 +2674,15 @@
     }
 
     function addLocalFiles() {
-        if (!eagle || !eagle.dialog) return;
+        if (state.running || !eagle || !eagle.dialog) return;
         Promise.resolve(eagle.dialog.showOpenDialog({
             properties: ['openFile', 'multiSelections'],
             filters: [{ name: tr('runtime.selectVideoFilter', '视频文件'), extensions: Core.VIDEO_EXTENSIONS.map(function (e) { return e.slice(1); }) }]
         }))
             .then(function (result) {
-                if (!result || !result.filePaths || !result.filePaths.length) return;
+                // 选择器可能在本轮确认前打开，直到 worker 启动后才返回。
+                // 本地文件与拖入文件一样，不经运行中追加确认就不能进入活队列。
+                if (state.running || !result || !result.filePaths || !result.filePaths.length) return;
                 var n = addFiles(result.filePaths, null);
                 if (n > 0) setStatus(tr('runtime.addedFiles', '已添加 {{count}} 个文件', { count: n }), 'ok');
             })
@@ -2676,12 +2690,13 @@
     }
 
     function pickBackupDir() {
-        if (!eagle || !eagle.dialog) return;
+        if (state.running || !eagle || !eagle.dialog) return;
         Promise.resolve(eagle.dialog.showOpenDialog({
             properties: ['openDirectory', 'createDirectory']
         }))
             .then(function (result) {
-                if (!result || !result.filePaths || !result.filePaths[0]) return;
+                // 目录选择器可能在用户确认压缩前打开，却在 worker 启动后才返回。
+                if (state.running || !result || !result.filePaths || !result.filePaths[0]) return;
                 state.settings.backupDir = result.filePaths[0];
 
                 // 用户特意选了个备份目录，意图已经很明确了 —— 顺手勾上，
@@ -2775,6 +2790,11 @@
         dom.inpTargetSize.addEventListener('change', function () { saveSettings(); refreshEstimate(); });
 
         dom.chkBackup.addEventListener('change', function () {
+            if (state.running) {
+                // 禁用控件挡用户操作；这里额外挡脚本触发的 change。
+                dom.chkBackup.checked = state.runSession ? state.runSession.settings.backup : state.settings.backup;
+                return;
+            }
             refreshBackupUI();
             saveSettings();
         });

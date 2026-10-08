@@ -2,7 +2,7 @@
 
 [中文文档](README.zh-CN.md)
 
-A local batch video compression plugin for [Eagle](https://eagle.cool/). It loads selected Eagle video items automatically, encodes them with FFmpeg, and can optionally replace the original Eagle item after compression.
+A local batch video compression plugin for [Eagle](https://eagle.cool/). It loads selected Eagle video items automatically, encodes them with FFmpeg, and replaces the file at its original path after a successful, confirmed compression. Syncing the linked Eagle item and thumbnail is a separate option.
 
 > Videos are processed locally. This plugin does not upload video files or send video metadata to a remote service.
 
@@ -13,11 +13,11 @@ A local batch video compression plugin for [Eagle](https://eagle.cool/). It load
 - Three compression modes:
   - **Quality first (CRF)** for a consistent visual-quality target.
   - **Target bitrate** for predictable bitrate control.
-  - **Target file size** using two-pass encoding for H.264 and H.265.
+  - **Target file size** using two-pass encoding for H.264/H.265 CPU software encoding; hardware encoding does not use that two-pass flow.
 - **CRF size estimation** based on actual stratified sample encodes. The UI shows a range rather than a misleading exact size.
 - Resolution, frame-rate, audio, speed, concurrency, and 10-bit source handling controls.
 - Optional backup workflow: backup is disabled until you explicitly choose a backup folder.
-- Optional Eagle replacement: after successful compression, the plugin can replace the original file and refresh its thumbnail.
+- Original-path replacement after a successful confirmed compression; optional Eagle-library sync refreshes the linked item and thumbnail, but never controls whether the file is replaced.
 - **Automatic tagging** after compression with a custom tag name (default "Compressed"). The tag is appended, never overwriting tags you already set. Only applies to items imported from Eagle.
 - **Remove compressed** button: clears finished items — and items whose file already carries the plugin's compression marker — out of the queue, without touching files or Eagle items.
 - Persistent settings, reset-to-defaults, Eagle-theme following, and localized UI.
@@ -66,7 +66,7 @@ The script checks JavaScript syntax and synchronizes the plugin into Eagle's loc
 | --- | --- | --- |
 | Quality first (CRF) | General use and stable visual quality | The final size depends on source complexity. The plugin runs short sample encodes and displays an estimate range. |
 | Target bitrate | A known delivery bitrate | Output size is calculated from duration, video bitrate, and audio settings. |
-| Target file size | A strict size budget | H.264 and H.265 use two-pass encoding to get close to the target; container and audio overhead can still cause a small difference. |
+| Target file size | A desired approximate size | H.264/H.265 CPU software encoding uses two passes; hardware and other codecs do not use that two-pass flow. Bitrate control, audio and container overhead affect the result; a strict cap is not guaranteed. |
 
 ### Storage-change colors
 
@@ -139,6 +139,17 @@ $NODE tests/test_queue_intake.js        # cancellation, queue intake, atomic com
 ```
 
 ## Changelog
+
+### 1.2.2
+
+**Fixed**
+
+- Backup settings are locked while compression runs. A late folder-picker response cannot change them; appended-item confirmation reads the exact settings snapshot held by the worker, not a mutable checkbox. A local-file picker opened before a run cannot silently append files when it returns after the run starts.
+- A missing or failed ffprobe, reported probe errors even with exit code zero, malformed probe output, missing duration, or missing video stream now fails verification before any backup or replacement. The regression suite verifies the original file's bytes are unchanged when ffprobe cannot start.
+
+**Improved**
+
+- Store copy now accurately explains GPU-to-CPU fallback, two-pass target-size encoding only for H.264/H.265 CPU software encoders, approximate rather than guaranteed size, and cancellation without rollback. The shorter English description is generated into the submission draft from the same store field used for validation.
 
 ### 1.2.1
 

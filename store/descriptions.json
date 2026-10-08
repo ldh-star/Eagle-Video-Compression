@@ -11,7 +11,7 @@
   },
   "en": {
     "name": "Video Compress",
-    "description": "Batch-compress videos from Eagle or files you drop in, on your own machine. Output replaces the original; a backup copy is optional. Requires FFmpeg."
+    "description": "Batch-compress Eagle videos or dropped local files with FFmpeg. Successful output replaces the original file; backup is optional."
   },
   "ja_JP": {
     "name": "動画圧縮",

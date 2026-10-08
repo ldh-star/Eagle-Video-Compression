@@ -4,8 +4,9 @@
  *
  *   node tools/gen-submission.js
  *
- * 从 docs/<语系>.md 里按 <!-- section:overview|usage|changelog --> 锚点抽出三段，
- * 拼成一份文件，方便直接复制到插件中心的提交表单。
+ * 从 store/descriptions.json 读取名称/简短描述，从 docs/<语系>.md 按
+ * <!-- section:overview|usage|changelog --> 锚点抽出三段，拼成同一份投稿稿。
+ * 避免仓库已缩短描述、人工仍粘贴后台旧字段而再次超限。
  *
  * 只出投稿要求的四个语系，不是 manifest.languages 全部八个：插件中心会**分别**
  * 审核每一个投稿语言版本，一个版本被卡就整体退回，而另外四个语系我们没有能力
@@ -30,6 +31,7 @@ const DOCS_DIR = path.join(ROOT, 'docs');
 const OUT_FILE = path.join(ROOT, 'SUBMISSION.md');
 
 const manifest = JSON.parse(fs.readFileSync(path.join(ROOT, 'manifest.json'), 'utf8'));
+const store = JSON.parse(fs.readFileSync(path.join(ROOT, 'store', 'descriptions.json'), 'utf8'));
 const VERSION = manifest.version;
 
 /** 提交表单要求的语系，顺序即表单里的填写顺序。 */
@@ -85,7 +87,7 @@ const lines = [
     '# 视频压缩 · 各语言提交文案',
     '',
     `> 由 \`docs/<语系>.md\` 自动生成，对应版本 **${VERSION}**。`,
-    '> 每个语系三节：简述 / 使用说明 / 版本日志，可直接复制到 Eagle 插件中心对应语系的字段。',
+    '> 每个语系包含商店名称、简短描述、简述、使用说明与版本日志，复制时请覆盖后台旧字段。',
     `> 只含投稿要求的 ${LANGS.length} 个语系；其余语系的 \`docs/\` 是插件界面语言的说明来源，不进提交表单。`,
     '> 内容改动请改 `docs/` 下的源文件后重跑 `node tools/gen-submission.js`，不要直接改本文件。',
     ''
@@ -100,7 +102,15 @@ for (const lang of LANGS) {
         continue;
     }
     const sec = parse(file);
-    lines.push('---', '', `## ${NAMES[lang] || lang}（${lang}）`, '');
+    const listing = store[lang];
+    if (!listing || !listing.name || !listing.description) {
+        console.error(`✗ store/descriptions.json 缺少 ${lang} 的名称或简短描述`);
+        bad++;
+        continue;
+    }
+    lines.push('---', '', `## ${NAMES[lang] || lang}（${lang}）`, '',
+        '### 商店名称', '', listing.name, '',
+        `### 简短描述（${Array.from(listing.description).length} 字符）`, '', listing.description, '');
     for (const [key, label] of SECTIONS) {
         if (!sec[key]) {
             console.error(`✗ docs/${lang}.md 缺少 ${key} 段落`);

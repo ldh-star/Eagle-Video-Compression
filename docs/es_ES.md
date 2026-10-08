@@ -7,7 +7,7 @@ Un complemento de transcodificación local para comprimir vídeos por lotes en E
 
 - Todo el procesamiento ocurre localmente. No se suben archivos de vídeo ni se envían metadatos a ningún servidor.
 - Salida H.265/HEVC por defecto, con opciones H.264, AV1, VP9 y solo remultiplexado.
-- Tres modos de compresión: calidad primero (CRF), tasa de bits objetivo y tamaño de archivo objetivo (H.264/H.265 con codificación en dos pasadas).
+- Tres modos de compresión: calidad primero (CRF), tasa de bits objetivo y tamaño de archivo objetivo (dos pasadas solo con H.264/H.265 por software en CPU, no con codificación por hardware).
 - La estimación de tamaño en modo CRF se basa en codificaciones de muestra reales, por lo que la interfaz muestra un intervalo en lugar de una cifra exacta engañosa.
 - Controles de resolución, velocidad de fotogramas, audio, velocidad de codificación, concurrencia y tratamiento de fuentes de 10 bits.
 - Detecta fuentes HDR y conserva sus metadatos de color al recodificar; marca los archivos ya comprimidos para evitar una segunda pasada con pérdida por descuido.
@@ -41,7 +41,7 @@ Este complemento necesita **tanto** un FFmpeg funcional **como** ffprobe.
 | --- | --- | --- |
 | Calidad primero (CRF) | Uso general, calidad visual constante | El tamaño final depende de la complejidad de la fuente; se muestra un intervalo estimado a partir de muestras |
 | Tasa de bits objetivo | Cuando ya conoces la tasa de bits | Se calcula a partir de la duración, la tasa de bits de vídeo y los ajustes de audio |
-| Tamaño de archivo objetivo | Presupuesto de tamaño estricto | H.264/H.265 usan dos pasadas para acercarse al objetivo; la sobrecarga del contenedor y del audio puede causar una pequeña diferencia |
+| Tamaño de archivo objetivo | Acercarse al tamaño deseado | Dos pasadas solo con H.264/H.265 por software en CPU; el hardware y otros códecs no siguen ese proceso. El control de tasa, el audio y el contenedor afectan al resultado: no se garantiza un límite estricto ni un margen fijo |
 
 **Cómo elegir la aceleración por hardware**
 
@@ -50,7 +50,7 @@ El selector «Aceleración por hardware» ofrece tres opciones:
 | Opción | Comportamiento |
 | --- | --- |
 | Automático (se detectó …) | Usa la GPU si hay un codificador por hardware utilizable y vuelve a la CPU en caso contrario. Es el valor predeterminado y muestra la familia detectada |
-| Forzar codificación por GPU | Solo codificación por hardware; falla si este equipo no tiene ningún codificador utilizable |
+| Forzar codificación por GPU | Intenta usar hardware primero; si no hay codificador adecuado o falla, pasa a la codificación por software en CPU. No es un modo exclusivo de GPU |
 | Solo codificación por software en CPU | Codificación por software de principio a fin, el resultado más predecible |
 
 - En macOS se usa Apple VideoToolbox; NVIDIA NVENC, Intel Quick Sync Video y AMD AMF requieren Windows con una GPU compatible. La codificación por hardware sirve para reducir el tiempo y el uso de CPU, y la mejora depende del material, los ajustes y la GPU. La calidad a igual tasa de bits puede diferir de la codificación por software, así que elige «Solo codificación por software en CPU» cuando la calidad sea lo primero.
@@ -62,7 +62,7 @@ El selector «Aceleración por hardware» ofrece tres opciones:
 
 **Otras notas**
 
-- Puedes pulsar **Detener y cancelar** en cualquier momento. Los procesos FFmpeg en curso se terminan, las tareas no iniciadas se marcan como canceladas de inmediato y los originales no se ven afectados.
+- Puedes pulsar **Detener y cancelar** durante la ejecución. Se detienen los procesos FFmpeg en curso y se cancelan las tareas no iniciadas. **Los archivos ya completados y sustituidos no se restauran**; cancelar una tarea aún no aplicada no sustituye su original.
 - Si cambias la selección en Eagle y vuelves a abrir el complemento durante una ejecución, te preguntará si cancelar la acción, sustituir la cola actual o añadir a ella. El trabajo en curso nunca se descarta en silencio.
 - Al elegir «Añadir a la cola de tareas» se pide una segunda confirmación: los archivos añadidos empiezan a comprimirse de inmediato y sustituyen a sus originales. El diálogo enumera los archivos nuevos e indica el estado real de la copia de seguridad de esta ejecución. Durante la compresión no se pueden cambiar los ajustes de copia.
 
@@ -84,6 +84,12 @@ El selector «Aceleración por hardware» ofrece tres opciones:
 
 <!-- section:changelog -->
 ## Historial de versiones
+
+### 1.2.2
+
+- Corregido: la copia de seguridad queda bloqueada durante la ejecución; la confirmación de archivos añadidos muestra el estado real de esa ejecución.
+- Corregido: si ffprobe no arranca o no completa la verificación, se conserva el archivo original sin sustituirlo.
+- Aclarado: forzar GPU puede recurrir a la CPU; las dos pasadas para tamaño objetivo solo se aplican a H.264/H.265 por software en CPU. Cancelar no restaura los archivos ya sustituidos.
 
 ### 1.2.1
 

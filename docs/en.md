@@ -7,7 +7,7 @@ A local batch video compression plugin for Eagle. It picks up the videos you hav
 
 - Everything runs locally. Video files are never uploaded and no video metadata is sent to any server.
 - H.265/HEVC by default, with H.264, AV1, VP9, and remux-only options.
-- Three compression modes: quality first (CRF), target bitrate, and target file size (two-pass for H.264/H.265).
+- Three compression modes: quality first (CRF), target bitrate, and target file size (two-pass for H.264/H.265 CPU software encoding, not hardware encoding).
 - CRF size estimates come from real stratified sample encodes, so the UI shows a range instead of a misleading exact number.
 - Controls for resolution, frame rate, audio, encoding speed, concurrency, and 10-bit source handling.
 - HDR sources are detected and their colour metadata is carried through re-encoding; already-compressed files are marked so you do not run a second lossy pass by accident.
@@ -41,7 +41,7 @@ This plugin needs a working FFmpeg **and** ffprobe. Both are required:
 | --- | --- | --- |
 | Quality first (CRF) | General use, consistent visual quality | Final size depends on source complexity; the UI shows an estimated range from sample encodes |
 | Target bitrate | A known delivery bitrate | Calculated from duration, video bitrate, and audio settings |
-| Target file size | A strict size budget | H.264/H.265 use two-pass encoding; container and audio overhead can still cause a small difference |
+| Target file size | A desired approximate size | H.264/H.265 CPU software encoding uses two passes; hardware and other codecs do not use that two-pass flow. Rate control, audio and container overhead affect the result; no strict size cap or fixed error margin is guaranteed |
 
 **Choosing hardware acceleration**
 
@@ -50,7 +50,7 @@ The **Hardware acceleration** dropdown has three options:
 | Option | Behaviour |
 | --- | --- |
 | Auto (detected …) | Uses the GPU when a usable hardware encoder is found, otherwise falls back to the CPU. This is the default, and the dropdown reports which family it detected |
-| Force GPU hardware encoding | Hardware encoding only; fails if this machine has no usable hardware encoder |
+| Force GPU hardware encoding | Tries hardware first; falls back to CPU software encoding if no suitable encoder is available or the hardware encode fails. It is not GPU-only |
 | CPU software encoding only | Software encoding throughout, the most predictable result |
 
 - Apple VideoToolbox is used on macOS; NVIDIA NVENC, Intel Quick Sync Video and AMD AMF require Windows with a matching GPU. Hardware encoding is there to cut wall-clock time and CPU load, and how much it helps depends on the source, the settings and the GPU. Quality at a given bitrate can differ from software encoding, so pick **CPU software encoding only** when quality matters most.
@@ -62,7 +62,7 @@ The **Hardware acceleration** dropdown has three options:
 
 **Other notes**
 
-- You can click **Stop and cancel** at any time. Running FFmpeg processes are terminated, tasks that have not started are marked cancelled immediately, and originals are left untouched.
+- You can click **Stop and cancel** during a run. Running FFmpeg processes are terminated and tasks that have not started are cancelled. **Files already completed and replaced are not restored**; cancelling an uncommitted task does not replace its original.
 - If you change the Eagle selection and reopen the plugin mid-run, it asks whether to cancel the action, replace the current queue, or append to it. Work in progress is never discarded silently.
 - Choosing **Add to task queue** asks for one more confirmation: appended items start compressing immediately and overwrite their originals, so the dialog lists exactly which files are being added and whether backup is actually on for this run. Backup settings cannot be changed while compression is running.
 
@@ -84,6 +84,12 @@ The **Hardware acceleration** dropdown has three options:
 
 <!-- section:changelog -->
 ## Changelog
+
+### 1.2.2
+
+- Fixed: backup settings are locked during a run, and appended items' confirmation displays the backup state actually used by that run.
+- Fixed: a failed ffprobe launch or incomplete output check now blocks replacement and preserves the original file.
+- Clarified: Force GPU can fall back to CPU; target-size two-pass encoding is for H.264/H.265 CPU software encoding only; cancelling does not restore files already replaced.
 
 ### 1.2.1
 
